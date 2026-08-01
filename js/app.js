@@ -684,7 +684,7 @@ function estrenoModalContent(m, critic) {
         ${
           m.trailer_key
             ? `<button class="btn primary" style="margin-top:16px" onclick="window.open('https://www.youtube.com/watch?v=${m.trailer_key}', '_blank')">▶️ Ver tráiler</button>`
-            : `<p class="hint" style="margin-top:16px">Todavía no hay tráiler cargado en TMDb.</p>`
+            : `<button class="btn ghost" style="margin-top:16px" onclick="window.open('https://www.youtube.com/results?search_query=${encodeURIComponent(m.title + " tráiler oficial")}', '_blank')">🔍 Buscar tráiler en YouTube</button>`
         }
       </div>
     </div>
