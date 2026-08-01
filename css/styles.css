@@ -278,6 +278,54 @@ h1, h2, h3, .display {
 }
 
 /* ---------- estrenos / predicciones ---------- */
+.view-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.toggle-btn {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 100px;
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.toggle-btn.active {
+  background: var(--teal);
+  color: var(--paper);
+}
+
+.critic-badge {
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 8px;
+  display: inline-block;
+}
+
+.critic-badge.pending {
+  font-weight: 400;
+  font-style: italic;
+  opacity: 0.65;
+}
+
+.critic-source {
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.secondary-block {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+  opacity: 0.85;
+}
+
 .expectation-picker {
   display: flex;
   gap: 5px;

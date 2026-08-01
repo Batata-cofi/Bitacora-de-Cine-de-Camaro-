@@ -17,7 +17,7 @@ const STATE = {
   movies: [],
   moviesLoaded: false,
   search: { query: "", results: [], picked: null },
-  estrenos: { movies: [], predictions: [], loaded: false },
+  estrenos: { movies: [], predictions: [], criticScores: {}, viewMode: "us", loaded: false },
 };
 
 const $app = document.getElementById("app");
@@ -494,6 +494,19 @@ async function renderEstrenos() {
       const [movies, predictions] = await Promise.all([TMDB.upcomingAR(), DB.listPredictions()]);
       STATE.estrenos.movies = movies;
       STATE.estrenos.predictions = predictions;
+
+      $app.innerHTML = shell("estrenos", `<p class="hint">Consultando qué dice la crítica…</p>`);
+      const scoreEntries = await Promise.all(
+        movies.map(async (m) => {
+          try {
+            const score = await OMDB.criticScore(m.original_title || m.title, year(m.release_date));
+            return [m.id, score];
+          } catch (e) {
+            return [m.id, { available: false, reason: "error" }];
+          }
+        })
+      );
+      STATE.estrenos.criticScores = Object.fromEntries(scoreEntries);
       STATE.estrenos.loaded = true;
     }
     renderEstrenosContent();
@@ -511,46 +524,79 @@ function predictionsByMovie() {
   return map;
 }
 
+function setEstrenosView(mode) {
+  STATE.estrenos.viewMode = mode;
+  renderEstrenosContent();
+}
+
 function renderEstrenosContent() {
   const preds = predictionsByMovie();
-  const content = STATE.estrenos.movies.length
-    ? `<div class="grid">${STATE.estrenos.movies.map((m) => estrenoCard(m, preds)).join("")}</div>`
+  const scores = STATE.estrenos.criticScores || {};
+  const list = [...STATE.estrenos.movies];
+
+  if (STATE.estrenos.viewMode === "critics") {
+    list.sort((a, b) => {
+      const sa = scores[a.id]?.available ? scores[a.id].score : -1;
+      const sb = scores[b.id]?.available ? scores[b.id].score : -1;
+      return sb - sa;
+    });
+  }
+
+  const content = list.length
+    ? `<div class="grid">${list.map((m) => estrenoCard(m, preds, scores[m.id])).join("")}</div>`
     : `<div class="empty-state">No encontramos próximos estrenos para Argentina en este momento.</div>`;
 
   $app.innerHTML = shell(
     "estrenos",
     `<div class="section-head"><h2>🇦🇷 Próximos estrenos</h2></div>
-     <p class="hint">Marcá qué esperás de cada peli. Cuando la vean, no te olvides de agregarla a la bitácora para ver si acertaste.</p>
+     <p class="hint">Click en una peli para ver la ficha completa y el tráiler. Cuando la vean, agréguenla a la bitácora para ver si acertaron con la previa.</p>
+     <div class="view-toggle">
+       <button class="toggle-btn ${STATE.estrenos.viewMode === "us" ? "active" : ""}" onclick="setEstrenosView('us')">🎀🎬 Lo que opinamos nosotros</button>
+       <button class="toggle-btn ${STATE.estrenos.viewMode === "critics" ? "active" : ""}" onclick="setEstrenosView('critics')">📰 Lo que opina la crítica</button>
+     </div>
      ${content}`
   );
 }
 
-function estrenoCard(m, preds) {
+function estrenoCard(m, preds, critic) {
   const poster = TMDB.posterUrl(m.poster_path, true) || placeholderPoster();
   const mine = preds[m.id]?.[STATE.user];
   const partnerUser = STATE.user === "cami" ? "lauti" : "cami";
   const partnerPick = preds[m.id]?.[partnerUser];
 
+  const usBlock = `
+    <div class="expectation-picker" onclick="event.stopPropagation()">
+      ${Object.entries(EXPECTATIONS)
+        .map(
+          ([key, val]) => `
+        <button class="exp-chip ${mine === key ? "selected" : ""}" title="${val.label}" onclick="setPrediction(${m.id}, '${key}')">${val.emoji}</button>
+      `
+        )
+        .join("")}
+    </div>
+    ${
+      partnerPick
+        ? `<div class="partner-pick">${USERS[partnerUser].emoji} ${EXPECTATIONS[partnerPick].emoji} ${EXPECTATIONS[partnerPick].label}</div>`
+        : `<div class="partner-pick pending">${USERS[partnerUser].emoji} todavía no opinó</div>`
+    }
+  `;
+
+  const criticBlock =
+    critic && critic.available
+      ? `<div class="critic-badge">${critic.emoji} ${critic.score}/100 <span class="critic-source">(${critic.source})</span></div>`
+      : `<div class="critic-badge pending">🤷 todavía no hay críticas</div>`;
+
+  const primary = STATE.estrenos.viewMode === "critics" ? criticBlock : usBlock;
+  const secondary = STATE.estrenos.viewMode === "critics" ? usBlock : criticBlock;
+
   return `
-    <div class="movie-card estreno-card">
+    <div class="movie-card estreno-card" onclick="openEstrenoModal(${m.id})">
       <img class="poster" src="${poster}" alt="${escapeHtml(m.title)}" onerror="this.src='${placeholderPoster()}'" />
       <div class="info">
         <div class="title">${escapeHtml(m.title)}</div>
         <div class="year">📅 ${fmtDate(m.release_date)}</div>
-        <div class="expectation-picker">
-          ${Object.entries(EXPECTATIONS)
-            .map(
-              ([key, val]) => `
-            <button class="exp-chip ${mine === key ? "selected" : ""}" title="${val.label}" onclick="setPrediction(${m.id}, '${key}')">${val.emoji}</button>
-          `
-            )
-            .join("")}
-        </div>
-        ${
-          partnerPick
-            ? `<div class="partner-pick">${USERS[partnerUser].emoji} ${EXPECTATIONS[partnerPick].emoji} ${EXPECTATIONS[partnerPick].label}</div>`
-            : `<div class="partner-pick pending">${USERS[partnerUser].emoji} todavía no opinó</div>`
-        }
+        <div class="primary-block">${primary}</div>
+        <div class="secondary-block">${secondary}</div>
       </div>
     </div>
   `;
@@ -569,12 +615,80 @@ async function setPrediction(tmdbId, expectationKey) {
       expectation: expectationKey,
     });
     toast("¡Predicción guardada!");
-    STATE.estrenos.loaded = false;
-    renderEstrenos();
+    const updated = await DB.listPredictions();
+    STATE.estrenos.predictions = updated;
+    renderEstrenosContent();
   } catch (e) {
     toast("Error guardando la predicción");
     console.error(e);
   }
+}
+
+// ---------------- estreno detail modal ----------------
+
+async function openEstrenoModal(tmdbId) {
+  const movie = STATE.estrenos.movies.find((m) => m.id === tmdbId);
+  if (!movie) return;
+  renderModal(`<p class="hint">Cargando ficha…</p>`);
+  try {
+    const d = await TMDB.getDetails(tmdbId);
+    const critic = STATE.estrenos.criticScores?.[tmdbId];
+    renderModal(estrenoModalContent(d, critic));
+  } catch (e) {
+    renderModal(errorBlock(e));
+  }
+}
+
+function renderModal(innerHtml) {
+  let backdrop = document.getElementById("modalBackdrop");
+  if (!backdrop) {
+    backdrop = document.createElement("div");
+    backdrop.id = "modalBackdrop";
+    backdrop.className = "modal-backdrop";
+    backdrop.onclick = (e) => {
+      if (e.target === backdrop) closeModal();
+    };
+    document.body.appendChild(backdrop);
+  }
+  backdrop.innerHTML = `<div class="modal"><button class="modal-close" onclick="closeModal()">✕</button>${innerHtml}</div>`;
+}
+
+function closeModal() {
+  const backdrop = document.getElementById("modalBackdrop");
+  if (backdrop) backdrop.remove();
+}
+
+function estrenoModalContent(m, critic) {
+  const criticHtml =
+    critic && critic.available
+      ? `<div class="critic-badge">${critic.emoji} ${critic.score}/100 según ${critic.source}</div>`
+      : `<div class="critic-badge pending">🤷 Todavía no hay críticas publicadas (suele destaparse días antes del estreno)</div>`;
+
+  return `
+    <div class="detail-hero">
+      <img class="poster" src="${TMDB.posterUrl(m.poster_path) || placeholderPoster()}" onerror="this.src='${placeholderPoster()}'" />
+      <div class="meta">
+        <h2>${escapeHtml(m.title)}</h2>
+        <div class="chips">
+          <span class="chip">📅 ${fmtDate(m.release_date)}</span>
+          ${m.duration_minutes ? `<span class="chip">⏱️ ${m.duration_minutes} min</span>` : ""}
+          ${m.director ? `<span class="chip">🎥 ${escapeHtml(m.director)}</span>` : ""}
+          <span class="chip">🗣️ ${TMDB.languageName(m.original_language)}</span>
+        </div>
+        ${criticHtml}
+        <p style="font-size:13px; margin-top:10px;">${escapeHtml(m.overview || "Todavía no hay sinopsis disponible.")}</p>
+        <div class="fact-grid">
+          <div class="fact"><div class="k">Elenco</div><div class="v">${escapeHtml(m.cast_names || "—")}</div></div>
+          <div class="fact"><div class="k">Presupuesto</div><div class="v">${money(m.budget)}</div></div>
+        </div>
+        ${
+          m.trailer_key
+            ? `<button class="btn primary" style="margin-top:16px" onclick="window.open('https://www.youtube.com/watch?v=${m.trailer_key}', '_blank')">▶️ Ver tráiler</button>`
+            : `<p class="hint" style="margin-top:16px">Todavía no hay tráiler cargado en TMDb.</p>`
+        }
+      </div>
+    </div>
+  `;
 }
 
 // ---------------- router ----------------
