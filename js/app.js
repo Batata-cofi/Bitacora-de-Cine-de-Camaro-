@@ -186,7 +186,7 @@ function movieCard(m) {
       <img class="poster" src="${poster}" alt="${escapeHtml(m.title)}" onerror="this.src='${placeholderPoster()}'" />
       <div class="info">
         <div class="title">${escapeHtml(m.title)}</div>
-        <div class="year">${year(m.release_date)}</div>
+        <div class="year">${year(m.release_date)}${m.genre_names ? ` · ${escapeHtml(m.genre_names.split(", ")[0])}` : ""}</div>
         ${avg !== null ? `<div class="score-pill">⭐ ${avg.toFixed(1)}</div>` : `<div class="score-pill" style="opacity:.5">sin calificar</div>`}
       </div>
     </div>
@@ -300,6 +300,7 @@ function addForm(m) {
           <span class="chip">📅 ${fmtDate(m.release_date)}</span>
           ${m.duration_minutes ? `<span class="chip">⏱️ ${m.duration_minutes} min</span>` : ""}
           ${m.director ? `<span class="chip">🎥 ${escapeHtml(m.director)}</span>` : ""}
+          ${m.genre_names ? `<span class="chip">🎭 ${escapeHtml(m.genre_names)}</span>` : ""}
         </div>
         <p style="font-size:13px;color:var(--teal-dark)">${escapeHtml(m.cast_names)}</p>
       </div>
@@ -406,7 +407,11 @@ function detailContent(m, predictions, critic) {
           ${m.duration_minutes ? `<span class="chip">⏱️ ${m.duration_minutes} min</span>` : ""}
           ${m.director ? `<span class="chip">🎥 ${escapeHtml(m.director)}</span>` : ""}
           ${m.original_language ? `<span class="chip">🗣️ ${TMDB.languageName(m.original_language)}</span>` : ""}
-          <span class="chip">👀 vista el ${fmtDate(m.watched_at)}</span>
+          ${m.genre_names ? `<span class="chip">🎭 ${escapeHtml(m.genre_names)}</span>` : ""}
+        </div>
+        <div class="field" style="max-width:220px; margin-top:10px;">
+          <label>👀 Vista el</label>
+          <input type="date" value="${m.watched_at}" onchange="updateWatchedDate('${m.id}', this.value)" />
         </div>
         <p style="font-size:13px">${escapeHtml(m.overview || "")}</p>
 
@@ -515,6 +520,19 @@ async function submitRating(movieId, user) {
     renderDetail(movieId);
   } catch (e) {
     toast("Error guardando la valoración");
+    console.error(e);
+  }
+}
+
+async function updateWatchedDate(movieId, newDate) {
+  if (!newDate) return;
+  try {
+    await DB.updateMovie(movieId, { watched_at: newDate });
+    STATE.moviesLoaded = false;
+    toast("Fecha actualizada");
+    renderDetail(movieId);
+  } catch (e) {
+    toast("Error actualizando la fecha");
     console.error(e);
   }
 }
@@ -736,6 +754,7 @@ function catalogCard(kind, m, preds, critic) {
       <div class="info">
         <div class="title">${escapeHtml(m.title)}</div>
         <div class="year">📅 ${fmtDate(m.release_date)}</div>
+        ${m.genre_names ? `<div class="genre-tag">🎭 ${escapeHtml(m.genre_names)}</div>` : ""}
         <div class="primary-block">${primary}</div>
         <div class="secondary-block">${secondary}</div>
         ${watchedBtn}
@@ -826,6 +845,7 @@ function catalogModalContent(kind, m, critic) {
           ${m.duration_minutes ? `<span class="chip">⏱️ ${m.duration_minutes} min</span>` : ""}
           ${m.director ? `<span class="chip">🎥 ${escapeHtml(m.director)}</span>` : ""}
           <span class="chip">🗣️ ${TMDB.languageName(m.original_language)}</span>
+          ${m.genre_names ? `<span class="chip">🎭 ${escapeHtml(m.genre_names)}</span>` : ""}
         </div>
         ${criticHtml}
         <p style="font-size:13px; margin-top:10px;">${escapeHtml(m.overview || "Todavía no hay sinopsis disponible.")}</p>

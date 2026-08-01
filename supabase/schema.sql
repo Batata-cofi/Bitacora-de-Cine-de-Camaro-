@@ -22,6 +22,7 @@ create table if not exists movies (
   original_title text,
   original_language text,
   trailer_key text,
+  genre_names text,
   created_at timestamptz default now()
 );
 

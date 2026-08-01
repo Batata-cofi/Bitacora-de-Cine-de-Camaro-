@@ -45,6 +45,12 @@ const DB = {
     if (error) throw error;
   },
 
+  async updateMovie(id, fields) {
+    const { data, error } = await sb.from("movies").update(fields).eq("id", id).select().single();
+    if (error) throw error;
+    return data;
+  },
+
   async listPredictions() {
     const { data, error } = await sb.from("predictions").select("*");
     if (error) throw error;

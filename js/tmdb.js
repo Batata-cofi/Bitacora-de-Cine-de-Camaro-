@@ -10,6 +10,8 @@ const LANG_NAMES = {
   nl: "Neerlandés", pl: "Polaco", tr: "Turco", ar: "Árabe", th: "Tailandés",
 };
 
+let genreMapCache = null;
+
 const TMDB = {
   languageName(code) {
     return LANG_NAMES[code] || (code ? code.toUpperCase() : "—");
@@ -18,6 +20,21 @@ const TMDB = {
   posterUrl(path, small) {
     if (!path) return "";
     return (small ? TMDB_IMG_SMALL : TMDB_IMG) + path;
+  },
+
+  async genreMap() {
+    if (genreMapCache) return genreMapCache;
+    const key = window.APP_CONFIG.TMDB_API_KEY;
+    const res = await fetch(`${TMDB_BASE}/genre/movie/list?api_key=${key}&language=es-AR`);
+    if (!res.ok) throw new Error("Error obteniendo géneros de TMDb");
+    const json = await res.json();
+    genreMapCache = {};
+    (json.genres || []).forEach((g) => (genreMapCache[g.id] = g.name));
+    return genreMapCache;
+  },
+
+  genreNames(genreIds, map) {
+    return (genreIds || []).map((id) => map[id]).filter(Boolean).join(", ");
   },
 
   async search(query) {
@@ -42,14 +59,15 @@ const TMDB = {
     );
     const all = pages.flatMap((p) => p.results || []);
     const seen = new Set();
-    return all
-      .filter((m) => {
-        if (!m.release_date || m.release_date < today) return false;
-        if (seen.has(m.id)) return false;
-        seen.add(m.id);
-        return true;
-      })
-      .sort((a, b) => a.release_date.localeCompare(b.release_date));
+    const filtered = all.filter((m) => {
+      if (!m.release_date || m.release_date < today) return false;
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+    const genres = await this.genreMap();
+    filtered.forEach((m) => (m.genre_names = this.genreNames(m.genre_ids, genres)));
+    return filtered.sort((a, b) => a.release_date.localeCompare(b.release_date));
   },
 
   async nowPlayingAR() {
@@ -64,13 +82,14 @@ const TMDB = {
     );
     const all = pages.flatMap((p) => p.results || []);
     const seen = new Set();
-    return all
-      .filter((m) => {
-        if (seen.has(m.id)) return false;
-        seen.add(m.id);
-        return true;
-      })
-      .sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+    const filtered = all.filter((m) => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+    const genres = await this.genreMap();
+    filtered.forEach((m) => (m.genre_names = this.genreNames(m.genre_ids, genres)));
+    return filtered.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
   },
 
   async getDetails(tmdbId) {
@@ -104,6 +123,7 @@ const TMDB = {
       overview: data.overview || "",
       original_language: data.original_language,
       trailer_key: trailer ? trailer.key : null,
+      genre_names: (data.genres || []).map((g) => g.name).join(", "),
     };
   },
 };
