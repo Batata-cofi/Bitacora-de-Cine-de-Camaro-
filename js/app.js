@@ -826,7 +826,11 @@ function closeModal() {
   if (backdrop) backdrop.remove();
 }
 
-const FAVORITE_CINEMAS = ["Cinépolis Recoleta", "Cinépolis Avellaneda", "Gaumont", "Lorca"];
+const FAVORITE_CINEMAS = [
+  { name: "Cinépolis Recoleta", url: "https://www.cinepolis.com.ar/cines/cinepolis-recoleta" },
+  { name: "Cinépolis Avellaneda", url: "https://cinepolis.com/ar?cinema=cinepolis-avellaneda-buenos-aires" },
+  { name: "MovieClub", url: "https://landing.movieclub.com.ar/project_category/en-cartel/" },
+];
 
 function ticketsBlock(kind, m) {
   if (kind !== "estrenadas") return "";
@@ -835,8 +839,7 @@ function ticketsBlock(kind, m) {
       <div class="tickets-label">🎟️ Sacar entradas en:</div>
       <div class="tickets-row">
         ${FAVORITE_CINEMAS.map(
-          (c) =>
-            `<button class="btn small ghost" onclick="window.open('https://www.google.com/search?q=${encodeURIComponent(m.title + " entradas " + c)}', '_blank')">${c}</button>`
+          (c) => `<button class="btn small ghost" onclick="window.open('${c.url}', '_blank')">${c.name}</button>`
         ).join("")}
       </div>
     </div>
