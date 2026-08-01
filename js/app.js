@@ -5,11 +5,19 @@ const USERS = {
   lauti: { name: "Lauti", emoji: "🎬", cls: "lauti" },
 };
 
+const EXPECTATIONS = {
+  top_asegurado: { label: "Top asegurado", emoji: "🏆" },
+  pinta_bien: { label: "Pinta bien", emoji: "👍" },
+  indie_linda: { label: "Indie linda de ver", emoji: "🎨" },
+  va_patras: { label: "Parece que va p'atrás", emoji: "📉" },
+};
+
 const STATE = {
   user: localStorage.getItem("bitacora_cine_user") || null,
   movies: [],
   moviesLoaded: false,
   search: { query: "", results: [], picked: null },
+  estrenos: { movies: [], predictions: [], loaded: false },
 };
 
 const $app = document.getElementById("app");
@@ -73,6 +81,7 @@ function shell(activeTab, contentHtml) {
       <button class="tab ${activeTab === "home" ? "active" : ""}" onclick="go('#/')">Inicio</button>
       <button class="tab ${activeTab === "add" ? "active" : ""}" onclick="go('#/add')">+ Agregar peli</button>
       <button class="tab ${activeTab === "top10" ? "active" : ""}" onclick="go('#/top10')">Top 10</button>
+      <button class="tab ${activeTab === "estrenos" ? "active" : ""}" onclick="go('#/estrenos')">🇦🇷 Estrenos</button>
     </div>
     <div>${contentHtml}</div>
   `;
@@ -476,6 +485,98 @@ function top10Row(m, avg, rank) {
   `;
 }
 
+// ---------------- estrenos AR ----------------
+
+async function renderEstrenos() {
+  $app.innerHTML = shell("estrenos", `<p class="hint">Buscando próximos estrenos en Argentina…</p>`);
+  try {
+    if (!STATE.estrenos.loaded) {
+      const [movies, predictions] = await Promise.all([TMDB.upcomingAR(), DB.listPredictions()]);
+      STATE.estrenos.movies = movies;
+      STATE.estrenos.predictions = predictions;
+      STATE.estrenos.loaded = true;
+    }
+    renderEstrenosContent();
+  } catch (e) {
+    $app.innerHTML = shell("estrenos", errorBlock(e));
+  }
+}
+
+function predictionsByMovie() {
+  const map = {};
+  for (const p of STATE.estrenos.predictions) {
+    if (!map[p.tmdb_id]) map[p.tmdb_id] = {};
+    map[p.tmdb_id][p.user_name] = p.expectation;
+  }
+  return map;
+}
+
+function renderEstrenosContent() {
+  const preds = predictionsByMovie();
+  const content = STATE.estrenos.movies.length
+    ? `<div class="grid">${STATE.estrenos.movies.map((m) => estrenoCard(m, preds)).join("")}</div>`
+    : `<div class="empty-state">No encontramos próximos estrenos para Argentina en este momento.</div>`;
+
+  $app.innerHTML = shell(
+    "estrenos",
+    `<div class="section-head"><h2>🇦🇷 Próximos estrenos</h2></div>
+     <p class="hint">Marcá qué esperás de cada peli. Cuando la vean, no te olvides de agregarla a la bitácora para ver si acertaste.</p>
+     ${content}`
+  );
+}
+
+function estrenoCard(m, preds) {
+  const poster = TMDB.posterUrl(m.poster_path, true) || placeholderPoster();
+  const mine = preds[m.id]?.[STATE.user];
+  const partnerUser = STATE.user === "cami" ? "lauti" : "cami";
+  const partnerPick = preds[m.id]?.[partnerUser];
+
+  return `
+    <div class="movie-card estreno-card">
+      <img class="poster" src="${poster}" alt="${escapeHtml(m.title)}" onerror="this.src='${placeholderPoster()}'" />
+      <div class="info">
+        <div class="title">${escapeHtml(m.title)}</div>
+        <div class="year">📅 ${fmtDate(m.release_date)}</div>
+        <div class="expectation-picker">
+          ${Object.entries(EXPECTATIONS)
+            .map(
+              ([key, val]) => `
+            <button class="exp-chip ${mine === key ? "selected" : ""}" title="${val.label}" onclick="setPrediction(${m.id}, '${key}')">${val.emoji}</button>
+          `
+            )
+            .join("")}
+        </div>
+        ${
+          partnerPick
+            ? `<div class="partner-pick">${USERS[partnerUser].emoji} ${EXPECTATIONS[partnerPick].emoji} ${EXPECTATIONS[partnerPick].label}</div>`
+            : `<div class="partner-pick pending">${USERS[partnerUser].emoji} todavía no opinó</div>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+async function setPrediction(tmdbId, expectationKey) {
+  const movie = STATE.estrenos.movies.find((m) => m.id === tmdbId);
+  if (!movie) return;
+  try {
+    await DB.upsertPrediction({
+      tmdb_id: movie.id,
+      title: movie.title,
+      poster_path: movie.poster_path,
+      release_date: movie.release_date || null,
+      user_name: STATE.user,
+      expectation: expectationKey,
+    });
+    toast("¡Predicción guardada!");
+    STATE.estrenos.loaded = false;
+    renderEstrenos();
+  } catch (e) {
+    toast("Error guardando la predicción");
+    console.error(e);
+  }
+}
+
 // ---------------- router ----------------
 
 function router() {
@@ -490,6 +591,7 @@ function router() {
   if (hash === "#/" || hash === "") renderHome();
   else if (hash === "#/add") renderAdd();
   else if (hash === "#/top10") renderTop10();
+  else if (hash === "#/estrenos") renderEstrenos();
   else if (movieMatch) renderDetail(movieMatch[1]);
   else renderHome();
 }

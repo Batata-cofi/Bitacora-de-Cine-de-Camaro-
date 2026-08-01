@@ -32,14 +32,30 @@ create table if not exists ratings (
   unique (movie_id, user_name)
 );
 
+create table if not exists predictions (
+  id uuid primary key default gen_random_uuid(),
+  tmdb_id integer not null,
+  title text not null,
+  poster_path text,
+  release_date date,
+  user_name text check (user_name in ('cami', 'lauti')) not null,
+  expectation text check (expectation in ('top_asegurado', 'pinta_bien', 'indie_linda', 'va_patras')) not null,
+  created_at timestamptz default now(),
+  unique (tmdb_id, user_name)
+);
+
 -- RLS: como es una app privada de dos personas sin login real,
 -- habilitamos acceso completo con la clave "anon" (pública del lado del cliente).
 -- No compartas el link de este proyecto públicamente.
 alter table movies enable row level security;
 alter table ratings enable row level security;
+alter table predictions enable row level security;
 
 create policy "allow all movies" on movies
   for all using (true) with check (true);
 
 create policy "allow all ratings" on ratings
+  for all using (true) with check (true);
+
+create policy "allow all predictions" on predictions
   for all using (true) with check (true);

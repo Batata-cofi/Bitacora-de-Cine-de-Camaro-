@@ -277,6 +277,40 @@ h1, h2, h3, .display {
   border-radius: 100px;
 }
 
+/* ---------- estrenos / predicciones ---------- */
+.expectation-picker {
+  display: flex;
+  gap: 5px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.exp-chip {
+  font-size: 16px;
+  line-height: 1;
+  padding: 5px 7px;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: var(--cream);
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.exp-chip:hover { transform: translateY(-2px); }
+
+.exp-chip.selected {
+  border-color: var(--ink);
+  background: var(--mustard);
+}
+
+.partner-pick {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--teal-dark);
+}
+
+.partner-pick.pending { opacity: 0.6; font-style: italic; }
+
 .empty-state {
   border: 2px dashed var(--line);
   border-radius: 16px;

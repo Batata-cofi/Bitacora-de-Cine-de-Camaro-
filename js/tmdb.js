@@ -18,6 +18,18 @@ const TMDB = {
     return json.results || [];
   },
 
+  async upcomingAR() {
+    const key = window.APP_CONFIG.TMDB_API_KEY;
+    const url = `${TMDB_BASE}/movie/upcoming?api_key=${key}&language=es-AR&region=AR&page=1`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Error obteniendo estrenos de TMDb");
+    const json = await res.json();
+    const today = new Date().toISOString().slice(0, 10);
+    return (json.results || [])
+      .filter((m) => m.release_date && m.release_date >= today)
+      .sort((a, b) => a.release_date.localeCompare(b.release_date));
+  },
+
   async getDetails(tmdbId) {
     const key = window.APP_CONFIG.TMDB_API_KEY;
     const url = `${TMDB_BASE}/movie/${tmdbId}?api_key=${key}&language=es-ES&append_to_response=credits`;

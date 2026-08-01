@@ -44,4 +44,20 @@ const DB = {
     const { error } = await sb.from("movies").delete().eq("id", id);
     if (error) throw error;
   },
+
+  async listPredictions() {
+    const { data, error } = await sb.from("predictions").select("*");
+    if (error) throw error;
+    return data;
+  },
+
+  async upsertPrediction(prediction) {
+    const { data, error } = await sb
+      .from("predictions")
+      .upsert(prediction, { onConflict: "tmdb_id,user_name" })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
 };
