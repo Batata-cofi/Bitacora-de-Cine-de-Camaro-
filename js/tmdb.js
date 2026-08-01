@@ -52,6 +52,27 @@ const TMDB = {
       .sort((a, b) => a.release_date.localeCompare(b.release_date));
   },
 
+  async nowPlayingAR() {
+    const key = window.APP_CONFIG.TMDB_API_KEY;
+    const pages = await Promise.all(
+      [1, 2].map((page) =>
+        fetch(`${TMDB_BASE}/movie/now_playing?api_key=${key}&language=es-AR&region=AR&page=${page}`).then((res) => {
+          if (!res.ok) throw new Error("Error obteniendo cartelera de TMDb");
+          return res.json();
+        })
+      )
+    );
+    const all = pages.flatMap((p) => p.results || []);
+    const seen = new Set();
+    return all
+      .filter((m) => {
+        if (seen.has(m.id)) return false;
+        seen.add(m.id);
+        return true;
+      })
+      .sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+  },
+
   async getDetails(tmdbId) {
     const key = window.APP_CONFIG.TMDB_API_KEY;
     const url = `${TMDB_BASE}/movie/${tmdbId}?api_key=${key}&language=es-ES&append_to_response=credits,videos`;

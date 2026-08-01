@@ -19,6 +19,9 @@ create table if not exists movies (
   countries_note text,
   watched_at date not null default current_date,
   added_by text check (added_by in ('cami', 'lauti')),
+  original_title text,
+  original_language text,
+  trailer_key text,
   created_at timestamptz default now()
 );
 

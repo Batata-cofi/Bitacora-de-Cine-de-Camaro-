@@ -18,6 +18,7 @@ const STATE = {
   moviesLoaded: false,
   search: { query: "", results: [], picked: null },
   estrenos: { movies: [], predictions: [], criticScores: {}, viewMode: "us", loaded: false },
+  estrenadas: { movies: [], predictions: [], criticScores: {}, viewMode: "us", loaded: false },
 };
 
 const $app = document.getElementById("app");
@@ -45,6 +46,28 @@ function fmtDate(dateStr) {
   if (!dateStr) return "—";
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function monthLabel(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const label = d.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function groupByMonth(movies) {
+  const groups = [];
+  let currentKey = null;
+  let currentGroup = null;
+  for (const m of movies) {
+    const key = (m.watched_at || "").slice(0, 7);
+    if (key !== currentKey) {
+      currentGroup = { key, label: monthLabel(m.watched_at), items: [] };
+      groups.push(currentGroup);
+      currentKey = key;
+    }
+    currentGroup.items.push(m);
+  }
+  return groups;
 }
 
 function avgScore(movie) {
@@ -78,10 +101,11 @@ function shell(activeTab, contentHtml) {
       </div>
     </div>
     <div class="tabs">
-      <button class="tab ${activeTab === "home" ? "active" : ""}" onclick="go('#/')">Inicio</button>
-      <button class="tab ${activeTab === "add" ? "active" : ""}" onclick="go('#/add')">+ Agregar peli</button>
-      <button class="tab ${activeTab === "top10" ? "active" : ""}" onclick="go('#/top10')">Top 10</button>
+      <button class="tab ${activeTab === "vistas" ? "active" : ""}" onclick="go('#/')">Vistas</button>
+      <button class="tab ${activeTab === "estrenadas" ? "active" : ""}" onclick="go('#/estrenadas')">🎬 Estrenadas</button>
       <button class="tab ${activeTab === "estrenos" ? "active" : ""}" onclick="go('#/estrenos')">🇦🇷 Estrenos</button>
+      <button class="tab ${activeTab === "top10" ? "active" : ""}" onclick="go('#/top10')">Top 10</button>
+      <button class="tab ${activeTab === "add" ? "active" : ""}" onclick="startAddFlow()">+ Agregar peli</button>
     </div>
     <div>${contentHtml}</div>
   `;
@@ -123,30 +147,35 @@ function switchUser() {
   router();
 }
 
-// ---------------- home / feed ----------------
+// ---------------- vistas (peliculas que ya vieron) ----------------
 
-async function renderHome() {
-  $app.innerHTML = shell("home", `<p class="hint">Cargando bitácora…</p>`);
+async function renderVistas() {
+  $app.innerHTML = shell("vistas", `<p class="hint">Cargando bitácora…</p>`);
   try {
     if (!STATE.moviesLoaded) {
       STATE.movies = await DB.listMovies();
       STATE.moviesLoaded = true;
     }
-    renderHomeContent();
+    renderVistasContent();
   } catch (e) {
-    $app.innerHTML = shell("home", errorBlock(e));
+    $app.innerHTML = shell("vistas", errorBlock(e));
   }
 }
 
-function renderHomeContent() {
+function renderVistasContent() {
+  const groups = groupByMonth(STATE.movies);
   const content = STATE.movies.length
-    ? `<div class="grid">${STATE.movies.map(movieCard).join("")}</div>`
-    : `<div class="empty-state">Todavía no cargaron ninguna película 🎬<br/><br/><button class="btn primary" onclick="go('#/add')">Agregar la primera</button></div>`;
+    ? groups
+        .map(
+          (g) => `
+        <div class="section-head"><h3>${g.label}</h3></div>
+        <div class="grid">${g.items.map(movieCard).join("")}</div>
+      `
+        )
+        .join("")
+    : `<div class="empty-state">Todavía no cargaron ninguna película 🎬<br/><br/><button class="btn primary" onclick="startAddFlow()">Agregar la primera</button></div>`;
 
-  $app.innerHTML = shell(
-    "home",
-    `<div class="section-head"><h2>Lo que vimos</h2></div>${content}`
-  );
+  $app.innerHTML = shell("vistas", `<div class="section-head"><h2>Lo que vimos</h2></div>${content}`);
 }
 
 function movieCard(m) {
@@ -176,13 +205,17 @@ function escapeHtml(s) {
 
 function errorBlock(e) {
   console.error(e);
-  return `<div class="empty-state">Uy, hubo un error: ${escapeHtml(e.message || String(e))}<br/><br/>Revisá que <code>js/config.js</code> tenga tus claves de Supabase correctas.</div>`;
+  return `<div class="empty-state">Uy, hubo un error: ${escapeHtml(e.message || String(e))}<br/><br/>Revisá que <code>js/config.js</code> tenga tus claves correctas.</div>`;
 }
 
 // ---------------- add movie ----------------
 
-function renderAdd() {
+function startAddFlow() {
   STATE.search = { query: "", results: [], picked: null };
+  go("#/add");
+}
+
+function renderAdd() {
   $app.innerHTML = shell("add", addContent());
 }
 
@@ -244,6 +277,18 @@ async function pickSearchResult(tmdbId) {
   }
 }
 
+async function addFromCatalog(tmdbId) {
+  try {
+    const details = await TMDB.getDetails(tmdbId);
+    STATE.search.picked = { ...details, watched_at: new Date().toISOString().slice(0, 10), filming_locations: "", countries_note: "" };
+    closeModal();
+    go("#/add");
+  } catch (e) {
+    toast("Error trayendo detalles de la película");
+    console.error(e);
+  }
+}
+
 function addForm(m) {
   return `
     <div class="section-head"><h2>Confirmá los datos</h2></div>
@@ -298,6 +343,7 @@ async function submitAddMovie() {
   try {
     const saved = await DB.addMovie(m);
     STATE.moviesLoaded = false;
+    STATE.estrenadas.loaded = false;
     toast("¡Película agregada! 🎉");
     go(`#/movie/${saved.id}`);
   } catch (e) {
@@ -309,16 +355,46 @@ async function submitAddMovie() {
 // ---------------- movie detail ----------------
 
 async function renderDetail(id) {
-  $app.innerHTML = shell("home", `<p class="hint">Cargando película…</p>`);
+  $app.innerHTML = shell("vistas", `<p class="hint">Cargando película…</p>`);
   try {
     const m = await DB.getMovie(id);
-    $app.innerHTML = shell("home", detailContent(m));
+    let predictions = [];
+    let critic = null;
+    if (m.tmdb_id) {
+      const [preds, criticRes] = await Promise.all([
+        DB.getPredictionsFor(m.tmdb_id).catch(() => []),
+        OMDB.criticScore(m.original_title || m.title, year(m.release_date)).catch(() => ({ available: false })),
+      ]);
+      predictions = preds;
+      critic = criticRes;
+    }
+    $app.innerHTML = shell("vistas", detailContent(m, predictions, critic));
   } catch (e) {
-    $app.innerHTML = shell("home", errorBlock(e));
+    $app.innerHTML = shell("vistas", errorBlock(e));
   }
 }
 
-function detailContent(m) {
+function predictedBeforeBlock(predictions) {
+  if (!predictions || !predictions.length) return "";
+  const items = predictions
+    .map((p) => `<div class="predicted-chip">${USERS[p.user_name].emoji} ${EXPECTATIONS[p.expectation].emoji} ${EXPECTATIONS[p.expectation].label}</div>`)
+    .join("");
+  return `
+    <div class="predicted-before">
+      <h3>🔮 Lo que predijimos antes de verla</h3>
+      <div class="predicted-chips">${items}</div>
+    </div>
+  `;
+}
+
+function criticCompareBlock(critic) {
+  if (!critic) return "";
+  return critic.available
+    ? `<div class="critic-badge">${critic.emoji} La crítica: ${critic.score}/100 (${critic.source}) <span class="hint">— no afecta el Top 10, es solo para comparar</span></div>`
+    : `<div class="critic-badge pending">🤷 No encontramos críticas para comparar</div>`;
+}
+
+function detailContent(m, predictions, critic) {
   return `
     <button class="link-btn" style="margin-bottom:14px" onclick="go('#/')">← volver</button>
     <div class="detail-hero">
@@ -329,6 +405,7 @@ function detailContent(m) {
           <span class="chip">📅 ${fmtDate(m.release_date)}</span>
           ${m.duration_minutes ? `<span class="chip">⏱️ ${m.duration_minutes} min</span>` : ""}
           ${m.director ? `<span class="chip">🎥 ${escapeHtml(m.director)}</span>` : ""}
+          ${m.original_language ? `<span class="chip">🗣️ ${TMDB.languageName(m.original_language)}</span>` : ""}
           <span class="chip">👀 vista el ${fmtDate(m.watched_at)}</span>
         </div>
         <p style="font-size:13px">${escapeHtml(m.overview || "")}</p>
@@ -340,6 +417,15 @@ function detailContent(m) {
           <div class="fact"><div class="k">Locaciones</div><div class="v">${escapeHtml(m.filming_locations || "—")}</div></div>
           <div class="fact"><div class="k">Le fue bien en</div><div class="v">${escapeHtml(m.countries_note || "—")}</div></div>
         </div>
+
+        ${
+          m.trailer_key
+            ? `<button class="btn ghost small" style="margin-top:10px" onclick="window.open('https://www.youtube.com/watch?v=${m.trailer_key}', '_blank')">▶️ Ver tráiler</button>`
+            : ""
+        }
+
+        ${predictedBeforeBlock(predictions)}
+        <div style="margin-top:10px">${criticCompareBlock(critic)}</div>
       </div>
     </div>
 
@@ -438,6 +524,7 @@ async function confirmDeleteMovie(id) {
   try {
     await DB.deleteMovie(id);
     STATE.moviesLoaded = false;
+    STATE.estrenadas.loaded = false;
     toast("Entrada eliminada");
     go("#/");
   } catch (e) {
@@ -463,7 +550,7 @@ async function renderTop10() {
 
     const content = ranked.length
       ? `
-        <p class="hint">Ordenado automáticamente por el promedio de las valoraciones de ambos. A medida que califiquen más pelis, esto se va a ir acomodando solo.</p>
+        <p class="hint">Ordenado automáticamente por el promedio de las valoraciones de ambos (la crítica no influye acá). A medida que califiquen más pelis, esto se va a ir acomodando solo.</p>
         <div class="top10-list">${ranked.map((x, i) => top10Row(x.m, x.avg, i + 1)).join("")}</div>
       `
       : `<div class="empty-state">Todavía no hay suficientes valoraciones para armar el top 10. ¡Califiquen alguna peli!</div>`;
@@ -485,56 +572,94 @@ function top10Row(m, avg, rank) {
   `;
 }
 
-// ---------------- estrenos AR ----------------
+// ---------------- catalogo compartido: estrenos y estrenadas ----------------
 
-async function renderEstrenos() {
-  $app.innerHTML = shell("estrenos", `<p class="hint">Buscando próximos estrenos en Argentina…</p>`);
-  try {
-    if (!STATE.estrenos.loaded) {
-      const [movies, predictions] = await Promise.all([TMDB.upcomingAR(), DB.listPredictions()]);
-      STATE.estrenos.movies = movies;
-      STATE.estrenos.predictions = predictions;
-
-      $app.innerHTML = shell("estrenos", `<p class="hint">Consultando qué dice la crítica…</p>`);
-      const scoreEntries = await Promise.all(
-        movies.map(async (m) => {
-          try {
-            const score = await OMDB.criticScore(m.original_title || m.title, year(m.release_date));
-            return [m.id, score];
-          } catch (e) {
-            return [m.id, { available: false, reason: "error" }];
-          }
-        })
-      );
-      STATE.estrenos.criticScores = Object.fromEntries(scoreEntries);
-      STATE.estrenos.loaded = true;
-    }
-    renderEstrenosContent();
-  } catch (e) {
-    $app.innerHTML = shell("estrenos", errorBlock(e));
-  }
+function catalogState(kind) {
+  return kind === "estrenadas" ? STATE.estrenadas : STATE.estrenos;
 }
 
-function predictionsByMovie() {
+async function fetchCriticScores(movies) {
+  const entries = await Promise.all(
+    movies.map(async (m) => {
+      try {
+        return [m.id, await OMDB.criticScore(m.original_title || m.title, year(m.release_date))];
+      } catch (e) {
+        return [m.id, { available: false, reason: "error" }];
+      }
+    })
+  );
+  return Object.fromEntries(entries);
+}
+
+function predictionsByMovie(predictions) {
   const map = {};
-  for (const p of STATE.estrenos.predictions) {
+  for (const p of predictions) {
     if (!map[p.tmdb_id]) map[p.tmdb_id] = {};
     map[p.tmdb_id][p.user_name] = p.expectation;
   }
   return map;
 }
 
-function setEstrenosView(mode) {
-  STATE.estrenos.viewMode = mode;
-  renderEstrenosContent();
+async function loadCatalog(kind) {
+  const state = catalogState(kind);
+  if (state.loaded) return;
+
+  const loadingMsg = kind === "estrenadas" ? "Buscando qué está en cartelera en Argentina…" : "Buscando próximos estrenos en Argentina…";
+  $app.innerHTML = shell(kind, `<p class="hint">${loadingMsg}</p>`);
+
+  let movies;
+  if (kind === "estrenadas") {
+    if (!STATE.moviesLoaded) {
+      STATE.movies = await DB.listMovies();
+      STATE.moviesLoaded = true;
+    }
+    const loggedIds = new Set(STATE.movies.map((m) => m.tmdb_id).filter(Boolean));
+    const all = await TMDB.nowPlayingAR();
+    movies = all.filter((m) => !loggedIds.has(m.id));
+  } else {
+    movies = await TMDB.upcomingAR();
+  }
+
+  const predictions = await DB.listPredictions();
+
+  $app.innerHTML = shell(kind, `<p class="hint">Consultando qué dice la crítica…</p>`);
+  const criticScores = await fetchCriticScores(movies);
+
+  state.movies = movies;
+  state.predictions = predictions;
+  state.criticScores = criticScores;
+  state.loaded = true;
 }
 
-function renderEstrenosContent() {
-  const preds = predictionsByMovie();
-  const scores = STATE.estrenos.criticScores || {};
-  const list = [...STATE.estrenos.movies];
+async function renderCatalog(kind) {
+  try {
+    await loadCatalog(kind);
+    renderCatalogContent(kind);
+  } catch (e) {
+    $app.innerHTML = shell(kind, errorBlock(e));
+  }
+}
 
-  if (STATE.estrenos.viewMode === "critics") {
+function renderEstrenos() {
+  renderCatalog("estrenos");
+}
+
+function renderEstrenadas() {
+  renderCatalog("estrenadas");
+}
+
+function setCatalogView(kind, mode) {
+  catalogState(kind).viewMode = mode;
+  renderCatalogContent(kind);
+}
+
+function renderCatalogContent(kind) {
+  const state = catalogState(kind);
+  const preds = predictionsByMovie(state.predictions);
+  const scores = state.criticScores || {};
+  const list = [...state.movies];
+
+  if (state.viewMode === "critics") {
     list.sort((a, b) => {
       const sa = scores[a.id]?.available ? scores[a.id].score : -1;
       const sb = scores[b.id]?.available ? scores[b.id].score : -1;
@@ -542,34 +667,45 @@ function renderEstrenosContent() {
     });
   }
 
+  const title = kind === "estrenadas" ? "🎬 En cartelera hoy" : "🇦🇷 Próximos estrenos";
+  const hint =
+    kind === "estrenadas"
+      ? "Pelis que están en el cine ahora mismo en Argentina. Click para ver la ficha, o marcá cuando ya la hayan visto."
+      : "Click en una peli para ver la ficha completa y el tráiler. Cuando la vean, agréguenla a la bitácora para ver si acertaron con la previa.";
+  const emptyMsg =
+    kind === "estrenadas"
+      ? "No hay pelis nuevas en cartelera para agregar (o ya las tenés todas en tu bitácora)."
+      : "No encontramos próximos estrenos para Argentina en este momento.";
+
   const content = list.length
-    ? `<div class="grid">${list.map((m) => estrenoCard(m, preds, scores[m.id])).join("")}</div>`
-    : `<div class="empty-state">No encontramos próximos estrenos para Argentina en este momento.</div>`;
+    ? `<div class="grid">${list.map((m) => catalogCard(kind, m, preds, scores[m.id])).join("")}</div>`
+    : `<div class="empty-state">${emptyMsg}</div>`;
 
   $app.innerHTML = shell(
-    "estrenos",
-    `<div class="section-head"><h2>🇦🇷 Próximos estrenos</h2></div>
-     <p class="hint">Click en una peli para ver la ficha completa y el tráiler. Cuando la vean, agréguenla a la bitácora para ver si acertaron con la previa.</p>
+    kind,
+    `<div class="section-head"><h2>${title}</h2></div>
+     <p class="hint">${hint}</p>
      <div class="view-toggle">
-       <button class="toggle-btn ${STATE.estrenos.viewMode === "us" ? "active" : ""}" onclick="setEstrenosView('us')">🎀🎬 Lo que opinamos nosotros</button>
-       <button class="toggle-btn ${STATE.estrenos.viewMode === "critics" ? "active" : ""}" onclick="setEstrenosView('critics')">📰 Lo que opina la crítica</button>
+       <button class="toggle-btn ${state.viewMode === "us" ? "active" : ""}" onclick="setCatalogView('${kind}', 'us')">🎀🎬 Lo que opinamos nosotros</button>
+       <button class="toggle-btn ${state.viewMode === "critics" ? "active" : ""}" onclick="setCatalogView('${kind}', 'critics')">📰 Lo que opina la crítica</button>
      </div>
      ${content}`
   );
 }
 
-function estrenoCard(m, preds, critic) {
+function catalogCard(kind, m, preds, critic) {
   const poster = TMDB.posterUrl(m.poster_path, true) || placeholderPoster();
   const mine = preds[m.id]?.[STATE.user];
   const partnerUser = STATE.user === "cami" ? "lauti" : "cami";
   const partnerPick = preds[m.id]?.[partnerUser];
+  const viewMode = catalogState(kind).viewMode;
 
   const usBlock = `
     <div class="expectation-picker" onclick="event.stopPropagation()">
       ${Object.entries(EXPECTATIONS)
         .map(
           ([key, val]) => `
-        <button class="exp-chip ${mine === key ? "selected" : ""}" title="${val.label}" onclick="setPrediction(${m.id}, '${key}')">${val.emoji}</button>
+        <button class="exp-chip ${mine === key ? "selected" : ""}" title="${val.label}" onclick="setCatalogPrediction('${kind}', ${m.id}, '${key}')">${val.emoji}</button>
       `
         )
         .join("")}
@@ -586,24 +722,31 @@ function estrenoCard(m, preds, critic) {
       ? `<div class="critic-badge">${critic.emoji} ${critic.score}/100 <span class="critic-source">(${critic.source})</span></div>`
       : `<div class="critic-badge pending">🤷 todavía no hay críticas</div>`;
 
-  const primary = STATE.estrenos.viewMode === "critics" ? criticBlock : usBlock;
-  const secondary = STATE.estrenos.viewMode === "critics" ? usBlock : criticBlock;
+  const primary = viewMode === "critics" ? criticBlock : usBlock;
+  const secondary = viewMode === "critics" ? usBlock : criticBlock;
+
+  const watchedBtn =
+    kind === "estrenadas"
+      ? `<button class="btn small primary block" style="margin-top:8px" onclick="event.stopPropagation(); addFromCatalog(${m.id})">✅ Ya la vimos</button>`
+      : "";
 
   return `
-    <div class="movie-card estreno-card" onclick="openEstrenoModal(${m.id})">
+    <div class="movie-card estreno-card" onclick="openCatalogModal('${kind}', ${m.id})">
       <img class="poster" src="${poster}" alt="${escapeHtml(m.title)}" onerror="this.src='${placeholderPoster()}'" />
       <div class="info">
         <div class="title">${escapeHtml(m.title)}</div>
         <div class="year">📅 ${fmtDate(m.release_date)}</div>
         <div class="primary-block">${primary}</div>
         <div class="secondary-block">${secondary}</div>
+        ${watchedBtn}
       </div>
     </div>
   `;
 }
 
-async function setPrediction(tmdbId, expectationKey) {
-  const movie = STATE.estrenos.movies.find((m) => m.id === tmdbId);
+async function setCatalogPrediction(kind, tmdbId, expectationKey) {
+  const state = catalogState(kind);
+  const movie = state.movies.find((m) => m.id === tmdbId);
   if (!movie) return;
   try {
     await DB.upsertPrediction({
@@ -615,25 +758,25 @@ async function setPrediction(tmdbId, expectationKey) {
       expectation: expectationKey,
     });
     toast("¡Predicción guardada!");
-    const updated = await DB.listPredictions();
-    STATE.estrenos.predictions = updated;
-    renderEstrenosContent();
+    state.predictions = await DB.listPredictions();
+    renderCatalogContent(kind);
   } catch (e) {
     toast("Error guardando la predicción");
     console.error(e);
   }
 }
 
-// ---------------- estreno detail modal ----------------
+// ---------------- modal de ficha (estrenos / estrenadas) ----------------
 
-async function openEstrenoModal(tmdbId) {
-  const movie = STATE.estrenos.movies.find((m) => m.id === tmdbId);
+async function openCatalogModal(kind, tmdbId) {
+  const state = catalogState(kind);
+  const movie = state.movies.find((m) => m.id === tmdbId);
   if (!movie) return;
   renderModal(`<p class="hint">Cargando ficha…</p>`);
   try {
     const d = await TMDB.getDetails(tmdbId);
-    const critic = STATE.estrenos.criticScores?.[tmdbId];
-    renderModal(estrenoModalContent(d, critic));
+    const critic = state.criticScores?.[tmdbId];
+    renderModal(catalogModalContent(kind, d, critic));
   } catch (e) {
     renderModal(errorBlock(e));
   }
@@ -658,11 +801,20 @@ function closeModal() {
   if (backdrop) backdrop.remove();
 }
 
-function estrenoModalContent(m, critic) {
+function catalogModalContent(kind, m, critic) {
   const criticHtml =
     critic && critic.available
       ? `<div class="critic-badge">${critic.emoji} ${critic.score}/100 según ${critic.source}</div>`
-      : `<div class="critic-badge pending">🤷 Todavía no hay críticas publicadas (suele destaparse días antes del estreno)</div>`;
+      : `<div class="critic-badge pending">🤷 Todavía no hay críticas publicadas${kind === "estrenos" ? " (suele destaparse días antes del estreno)" : ""}</div>`;
+
+  const trailerBtn = m.trailer_key
+    ? `<button class="btn primary" style="margin-top:16px" onclick="window.open('https://www.youtube.com/watch?v=${m.trailer_key}', '_blank')">▶️ Ver tráiler</button>`
+    : `<button class="btn ghost" style="margin-top:16px" onclick="window.open('https://www.youtube.com/results?search_query=${encodeURIComponent(m.title + " tráiler oficial")}', '_blank')">🔍 Buscar tráiler en YouTube</button>`;
+
+  const watchedBtn =
+    kind === "estrenadas"
+      ? `<button class="btn primary" style="margin-top:10px" onclick="addFromCatalog(${m.tmdb_id})">✅ Ya la vimos, agregar a la bitácora</button>`
+      : "";
 
   return `
     <div class="detail-hero">
@@ -681,11 +833,8 @@ function estrenoModalContent(m, critic) {
           <div class="fact"><div class="k">Elenco</div><div class="v">${escapeHtml(m.cast_names || "—")}</div></div>
           <div class="fact"><div class="k">Presupuesto</div><div class="v">${money(m.budget)}</div></div>
         </div>
-        ${
-          m.trailer_key
-            ? `<button class="btn primary" style="margin-top:16px" onclick="window.open('https://www.youtube.com/watch?v=${m.trailer_key}', '_blank')">▶️ Ver tráiler</button>`
-            : `<button class="btn ghost" style="margin-top:16px" onclick="window.open('https://www.youtube.com/results?search_query=${encodeURIComponent(m.title + " tráiler oficial")}', '_blank')">🔍 Buscar tráiler en YouTube</button>`
-        }
+        ${trailerBtn}
+        ${watchedBtn}
       </div>
     </div>
   `;
@@ -702,12 +851,13 @@ function router() {
   const hash = window.location.hash || "#/";
   const movieMatch = hash.match(/^#\/movie\/(.+)$/);
 
-  if (hash === "#/" || hash === "") renderHome();
+  if (hash === "#/" || hash === "") renderVistas();
   else if (hash === "#/add") renderAdd();
   else if (hash === "#/top10") renderTop10();
   else if (hash === "#/estrenos") renderEstrenos();
+  else if (hash === "#/estrenadas") renderEstrenadas();
   else if (movieMatch) renderDetail(movieMatch[1]);
-  else renderHome();
+  else renderVistas();
 }
 
 window.addEventListener("hashchange", router);

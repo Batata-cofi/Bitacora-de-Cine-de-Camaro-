@@ -60,4 +60,10 @@ const DB = {
     if (error) throw error;
     return data;
   },
+
+  async getPredictionsFor(tmdbId) {
+    const { data, error } = await sb.from("predictions").select("*").eq("tmdb_id", tmdbId);
+    if (error) throw error;
+    return data;
+  },
 };
