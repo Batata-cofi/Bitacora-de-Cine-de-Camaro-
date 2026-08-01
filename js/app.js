@@ -671,6 +671,12 @@ function setCatalogView(kind, mode) {
   renderCatalogContent(kind);
 }
 
+function refreshCatalog(kind) {
+  catalogState(kind).loaded = false;
+  if (kind === "estrenadas") STATE.moviesLoaded = false;
+  renderCatalog(kind);
+}
+
 function renderCatalogContent(kind) {
   const state = catalogState(kind);
   const preds = predictionsByMovie(state.predictions);
@@ -701,7 +707,7 @@ function renderCatalogContent(kind) {
 
   $app.innerHTML = shell(
     kind,
-    `<div class="section-head"><h2>${title}</h2></div>
+    `<div class="section-head"><h2>${title}</h2><button class="btn ghost small" onclick="refreshCatalog('${kind}')">🔄 Actualizar</button></div>
      <p class="hint">${hint}</p>
      <div class="view-toggle">
        <button class="toggle-btn ${state.viewMode === "us" ? "active" : ""}" onclick="setCatalogView('${kind}', 'us')">🎀🎬 Lo que opinamos nosotros</button>
