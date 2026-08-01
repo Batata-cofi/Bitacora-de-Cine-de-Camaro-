@@ -826,6 +826,23 @@ function closeModal() {
   if (backdrop) backdrop.remove();
 }
 
+const FAVORITE_CINEMAS = ["Cinépolis Recoleta", "Cinépolis Avellaneda", "Gaumont", "Lorca"];
+
+function ticketsBlock(kind, m) {
+  if (kind !== "estrenadas") return "";
+  return `
+    <div class="tickets-block">
+      <div class="tickets-label">🎟️ Sacar entradas en:</div>
+      <div class="tickets-row">
+        ${FAVORITE_CINEMAS.map(
+          (c) =>
+            `<button class="btn small ghost" onclick="window.open('https://www.google.com/search?q=${encodeURIComponent(m.title + " entradas " + c)}', '_blank')">${c}</button>`
+        ).join("")}
+      </div>
+    </div>
+  `;
+}
+
 function catalogModalContent(kind, m, critic) {
   const criticHtml =
     critic && critic.available
@@ -860,6 +877,7 @@ function catalogModalContent(kind, m, critic) {
           <div class="fact"><div class="k">Presupuesto</div><div class="v">${money(m.budget)}</div></div>
         </div>
         ${trailerBtn}
+        ${ticketsBlock(kind, m)}
         ${watchedBtn}
       </div>
     </div>

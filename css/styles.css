@@ -327,6 +327,30 @@ h1, h2, h3, .display {
   display: inline-block;
 }
 
+.tickets-block {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--mustard);
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+}
+
+.tickets-label {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.tickets-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tickets-row .btn {
+  background: var(--paper);
+}
+
 .detail-hero .critic-badge {
   font-size: 13px;
 }
