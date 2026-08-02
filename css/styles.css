@@ -64,9 +64,23 @@ h1, h2, h3, .display {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
   padding: 10px 0 24px;
   border-bottom: 3px solid var(--ink);
   margin-bottom: 28px;
+}
+
+.context-badge {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  background: var(--terracotta);
+  color: var(--paper);
+  padding: 6px 14px;
+  border-radius: 100px;
+  border: 2px solid var(--ink);
+  white-space: nowrap;
 }
 
 .brand {

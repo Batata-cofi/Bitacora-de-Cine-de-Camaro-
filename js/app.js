@@ -121,6 +121,12 @@ function tabsForContext(activeTab) {
   `;
 }
 
+function contextLabel() {
+  if (STATE.context === "casa-peli") return "🏠 Peli en casa";
+  if (STATE.context === "casa-serie") return "📺 Serie en casa";
+  return "🎬 Cine";
+}
+
 function shell(activeTab, contentHtml) {
   applyTheme();
   const u = USERS[STATE.user];
@@ -130,6 +136,7 @@ function shell(activeTab, contentHtml) {
         <span class="clapper">🎞️</span>
         <div class="brand-title">Bitácora de Cine<span>de Camaro</span></div>
       </div>
+      <div class="context-badge">${contextLabel()}</div>
       <div class="who">
         <div class="avatar ${u.cls}">${u.emoji}</div>
         <span>${u.name}</span>
