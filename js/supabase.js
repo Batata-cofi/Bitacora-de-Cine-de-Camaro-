@@ -72,4 +72,44 @@ const DB = {
     if (error) throw error;
     return data;
   },
+
+  async listShows() {
+    const { data, error } = await sb
+      .from("shows")
+      .select("*, show_ratings(*)")
+      .order("watched_at", { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
+  async getShow(id) {
+    const { data, error } = await sb
+      .from("shows")
+      .select("*, show_ratings(*)")
+      .eq("id", id)
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async addShow(show) {
+    const { data, error } = await sb.from("shows").insert(show).select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  async deleteShow(id) {
+    const { error } = await sb.from("shows").delete().eq("id", id);
+    if (error) throw error;
+  },
+
+  async upsertShowRating(rating) {
+    const { data, error } = await sb
+      .from("show_ratings")
+      .upsert(rating, { onConflict: "show_id,user_name" })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
 };

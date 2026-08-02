@@ -19,6 +19,10 @@ const STATE = {
   search: { query: "", results: [], picked: null },
   estrenos: { movies: [], predictions: [], criticScores: {}, viewMode: "us", loaded: false },
   estrenadas: { movies: [], predictions: [], criticScores: {}, viewMode: "us", loaded: false },
+  top10Mode: "global",
+  shows: [],
+  showsLoaded: false,
+  showSearch: { query: "", results: [], picked: null },
 };
 
 const $app = document.getElementById("app");
@@ -102,8 +106,10 @@ function shell(activeTab, contentHtml) {
     </div>
     <div class="tabs">
       <button class="tab ${activeTab === "vistas" ? "active" : ""}" onclick="go('#/')">Vistas</button>
+      <button class="tab ${activeTab === "casa" ? "active" : ""}" onclick="go('#/casa')">🏠 En casa</button>
       <button class="tab ${activeTab === "estrenadas" ? "active" : ""}" onclick="go('#/estrenadas')">🎬 Estrenadas</button>
       <button class="tab ${activeTab === "estrenos" ? "active" : ""}" onclick="go('#/estrenos')">🇦🇷 Estrenos</button>
+      <button class="tab ${activeTab === "series" ? "active" : ""}" onclick="go('#/series')">📺 Series</button>
       <button class="tab ${activeTab === "top10" ? "active" : ""}" onclick="go('#/top10')">Top 10</button>
       <button class="tab ${activeTab === "add" ? "active" : ""}" onclick="startAddFlow()">+ Agregar peli</button>
     </div>
@@ -162,9 +168,18 @@ async function renderVistas() {
   }
 }
 
+function isCine(m) {
+  return (m.watched_where || "cine") === "cine";
+}
+
+function isCasa(m) {
+  return m.watched_where === "casa";
+}
+
 function renderVistasContent() {
-  const groups = groupByMonth(STATE.movies);
-  const content = STATE.movies.length
+  const cineMovies = STATE.movies.filter(isCine);
+  const groups = groupByMonth(cineMovies);
+  const content = cineMovies.length
     ? groups
         .map(
           (g) => `
@@ -175,7 +190,44 @@ function renderVistasContent() {
         .join("")
     : `<div class="empty-state">Todavía no cargaron ninguna película 🎬<br/><br/><button class="btn primary" onclick="startAddFlow()">Agregar la primera</button></div>`;
 
-  $app.innerHTML = shell("vistas", `<div class="section-head"><h2>Lo que vimos</h2></div>${content}`);
+  $app.innerHTML = shell("vistas", `<div class="section-head"><h2>Lo que vimos en el cine</h2></div>${content}`);
+}
+
+// ---------------- en casa (peliculas vistas en streaming/casa) ----------------
+
+async function renderEnCasa() {
+  $app.innerHTML = shell("casa", `<p class="hint">Cargando…</p>`);
+  try {
+    if (!STATE.moviesLoaded) {
+      STATE.movies = await DB.listMovies();
+      STATE.moviesLoaded = true;
+    }
+    renderEnCasaContent();
+  } catch (e) {
+    $app.innerHTML = shell("casa", errorBlock(e));
+  }
+}
+
+function renderEnCasaContent() {
+  const casaMovies = STATE.movies.filter(isCasa);
+  const groups = groupByMonth(casaMovies);
+  const content = casaMovies.length
+    ? groups
+        .map(
+          (g) => `
+        <div class="section-head"><h3>${g.label}</h3></div>
+        <div class="grid">${g.items.map(movieCard).join("")}</div>
+      `
+        )
+        .join("")
+    : `<div class="empty-state">Todavía no cargaron ninguna película vista en casa 🏠<br/><br/><button class="btn primary" onclick="startAddFlow()">Agregar la primera</button></div>`;
+
+  $app.innerHTML = shell(
+    "casa",
+    `<div class="section-head"><h2>🏠 Lo que vimos en casa</h2></div>
+     <p class="hint">Al agregar una película elegí "Casa" para que te diga en qué plataforma la vieron.</p>
+     ${content}`
+  );
 }
 
 function movieCard(m) {
@@ -269,7 +321,7 @@ function searchResultRow(r) {
 async function pickSearchResult(tmdbId) {
   try {
     const details = await TMDB.getDetails(tmdbId);
-    STATE.search.picked = { ...details, watched_at: new Date().toISOString().slice(0, 10), filming_locations: "", countries_note: "" };
+    STATE.search.picked = { ...details, watched_at: new Date().toISOString().slice(0, 10), filming_locations: "", countries_note: "", watched_where: "cine" };
     $app.innerHTML = shell("add", addContent());
   } catch (e) {
     toast("Error trayendo detalles de la película");
@@ -280,7 +332,7 @@ async function pickSearchResult(tmdbId) {
 async function addFromCatalog(tmdbId) {
   try {
     const details = await TMDB.getDetails(tmdbId);
-    STATE.search.picked = { ...details, watched_at: new Date().toISOString().slice(0, 10), filming_locations: "", countries_note: "" };
+    STATE.search.picked = { ...details, watched_at: new Date().toISOString().slice(0, 10), filming_locations: "", countries_note: "", watched_where: "cine" };
     closeModal();
     go("#/add");
   } catch (e) {
@@ -289,7 +341,33 @@ async function addFromCatalog(tmdbId) {
   }
 }
 
+async function setAddWatchedWhere(where) {
+  STATE.search.picked.watched_where = where;
+  if (where === "casa" && !STATE.search.picked._providersChecked) {
+    STATE.search.picked._providersChecked = true;
+    try {
+      STATE.search.picked._providers = await TMDB.getWatchProvidersAR(STATE.search.picked.tmdb_id);
+    } catch (e) {
+      STATE.search.picked._providers = null;
+    }
+  }
+  $app.innerHTML = shell("add", addContent());
+}
+
+function streamingPickBlock(m) {
+  const p = m._providers;
+  if (p === undefined) return `<p class="hint">Buscando dónde está disponible…</p>`;
+  if (!p) return `<div class="critic-badge pending">🤷 No pudimos consultar las plataformas</div>`;
+  const parts = [];
+  if (p.flatrate.length) parts.push(`📺 Suscripción: ${p.flatrate.join(", ")}`);
+  if (p.rent.length) parts.push(`💵 Alquiler: ${p.rent.join(", ")}`);
+  if (p.buy.length) parts.push(`🛒 Compra: ${p.buy.join(", ")}`);
+  if (!parts.length) return `<div class="critic-badge pending">🤷 No encontramos dónde está disponible en streaming (AR)</div>`;
+  return `<div class="predicted-chips">${parts.map((x) => `<div class="predicted-chip">${escapeHtml(x)}</div>`).join("")}</div>`;
+}
+
 function addForm(m) {
+  const where = m.watched_where || "cine";
   return `
     <div class="section-head"><h2>Confirmá los datos</h2></div>
     <div class="detail-hero">
@@ -306,7 +384,17 @@ function addForm(m) {
       </div>
     </div>
 
-    <div class="form-grid">
+    <div class="field">
+      <label>¿Dónde la vieron?</label>
+      <div class="view-toggle">
+        <button class="toggle-btn ${where === "cine" ? "active" : ""}" onclick="setAddWatchedWhere('cine')">🎬 Cine</button>
+        <button class="toggle-btn ${where === "casa" ? "active" : ""}" onclick="setAddWatchedWhere('casa')">🏠 Casa</button>
+      </div>
+    </div>
+
+    ${where === "casa" ? `<div class="predicted-before"><h3>📺 Dónde verla en Argentina</h3>${streamingPickBlock(m)}</div>` : ""}
+
+    <div class="form-grid" style="margin-top:16px;">
       <div class="field">
         <label>¿Cuándo la vieron?</label>
         <input type="date" id="f_watched_at" value="${m.watched_at}" />
@@ -340,9 +428,14 @@ async function submitAddMovie() {
   m.filming_locations = document.getElementById("f_locations").value;
   m.countries_note = document.getElementById("f_countries").value;
   m.added_by = STATE.user;
+  m.watched_where = m.watched_where || "cine";
+
+  const payload = { ...m };
+  delete payload._providersChecked;
+  delete payload._providers;
 
   try {
-    const saved = await DB.addMovie(m);
+    const saved = await DB.addMovie(payload);
     STATE.moviesLoaded = false;
     STATE.estrenadas.loaded = false;
     toast("¡Película agregada! 🎉");
@@ -359,17 +452,22 @@ async function renderDetail(id) {
   $app.innerHTML = shell("vistas", `<p class="hint">Cargando película…</p>`);
   try {
     const m = await DB.getMovie(id);
+    const activeTab = isCasa(m) ? "casa" : "vistas";
     let predictions = [];
     let critic = null;
+    let providers = null;
     if (m.tmdb_id) {
-      const [preds, criticRes] = await Promise.all([
+      const jobs = [
         DB.getPredictionsFor(m.tmdb_id).catch(() => []),
         OMDB.criticScore(m.original_title || m.title, year(m.release_date)).catch(() => ({ available: false })),
-      ]);
-      predictions = preds;
-      critic = criticRes;
+      ];
+      if (isCasa(m)) jobs.push(TMDB.getWatchProvidersAR(m.tmdb_id).catch(() => null));
+      const results = await Promise.all(jobs);
+      predictions = results[0];
+      critic = results[1];
+      if (isCasa(m)) providers = results[2];
     }
-    $app.innerHTML = shell("vistas", detailContent(m, predictions, critic));
+    $app.innerHTML = shell(activeTab, detailContent(m, predictions, critic, providers));
   } catch (e) {
     $app.innerHTML = shell("vistas", errorBlock(e));
   }
@@ -395,14 +493,29 @@ function criticCompareBlock(critic) {
     : `<div class="critic-badge pending">🤷 No encontramos críticas para comparar</div>`;
 }
 
-function detailContent(m, predictions, critic) {
+function streamingCompareBlock(providers) {
+  if (!providers) return "";
+  const parts = [];
+  if (providers.flatrate.length) parts.push(`📺 Suscripción: ${providers.flatrate.join(", ")}`);
+  if (providers.rent.length) parts.push(`💵 Alquiler: ${providers.rent.join(", ")}`);
+  if (providers.buy.length) parts.push(`🛒 Compra: ${providers.buy.join(", ")}`);
   return `
-    <button class="link-btn" style="margin-bottom:14px" onclick="go('#/')">← volver</button>
+    <div class="predicted-before">
+      <h3>📺 Dónde verla en Argentina</h3>
+      ${parts.length ? `<div class="predicted-chips">${parts.map((x) => `<div class="predicted-chip">${escapeHtml(x)}</div>`).join("")}</div>` : `<p class="pending">No encontramos dónde está disponible en streaming.</p>`}
+    </div>
+  `;
+}
+
+function detailContent(m, predictions, critic, providers) {
+  return `
+    <button class="link-btn" style="margin-bottom:14px" onclick="go(${isCasa(m) ? "'#/casa'" : "'#/'"})">← volver</button>
     <div class="detail-hero">
       <img class="poster" src="${TMDB.posterUrl(m.poster_path) || placeholderPoster()}" onerror="this.src='${placeholderPoster()}'" />
       <div class="meta">
         <h2>${escapeHtml(m.title)}</h2>
         <div class="chips">
+          <span class="chip">${isCasa(m) ? "🏠 Casa" : "🎬 Cine"}</span>
           <span class="chip">📅 ${fmtDate(m.release_date)}</span>
           ${m.duration_minutes ? `<span class="chip">⏱️ ${m.duration_minutes} min</span>` : ""}
           ${m.director ? `<span class="chip">🎥 ${escapeHtml(m.director)}</span>` : ""}
@@ -430,6 +543,7 @@ function detailContent(m, predictions, critic) {
         }
 
         ${predictedBeforeBlock(predictions)}
+        ${isCasa(m) ? streamingCompareBlock(providers) : ""}
         <div style="margin-top:10px">${criticCompareBlock(critic)}</div>
       </div>
     </div>
@@ -560,23 +674,51 @@ async function renderTop10() {
       STATE.movies = await DB.listMovies();
       STATE.moviesLoaded = true;
     }
-    const ranked = STATE.movies
-      .map((m) => ({ m, avg: avgScore(m) }))
-      .filter((x) => x.avg !== null)
-      .sort((a, b) => b.avg - a.avg)
-      .slice(0, 10);
-
-    const content = ranked.length
-      ? `
-        <p class="hint">Ordenado automáticamente por el promedio de las valoraciones de ambos (la crítica no influye acá). A medida que califiquen más pelis, esto se va a ir acomodando solo.</p>
-        <div class="top10-list">${ranked.map((x, i) => top10Row(x.m, x.avg, i + 1)).join("")}</div>
-      `
-      : `<div class="empty-state">Todavía no hay suficientes valoraciones para armar el top 10. ¡Califiquen alguna peli!</div>`;
-
-    $app.innerHTML = shell("top10", `<div class="section-head"><h2>🏆 Top 10 de Cami &amp; Lauti</h2></div>${content}`);
+    renderTop10Content();
   } catch (e) {
     $app.innerHTML = shell("top10", errorBlock(e));
   }
+}
+
+function setTop10Mode(mode) {
+  STATE.top10Mode = mode;
+  renderTop10Content();
+}
+
+function renderTop10Content() {
+  const mode = STATE.top10Mode;
+  const pool = mode === "global" ? STATE.movies : STATE.movies.filter((m) => (m.watched_where || "cine") === mode);
+
+  const ranked = pool
+    .map((m) => ({ m, avg: avgScore(m) }))
+    .filter((x) => x.avg !== null)
+    .sort((a, b) => b.avg - a.avg)
+    .slice(0, 10);
+
+  const titles = { global: "🏆 Top 10 Global", cine: "🏆 Top 10 en el Cine", casa: "🏆 Top 10 en Casa" };
+  const emptyMsgs = {
+    global: "Todavía no hay suficientes valoraciones para armar el top 10. ¡Califiquen alguna peli!",
+    cine: "Todavía no calificaron pelis vistas en el cine.",
+    casa: "Todavía no calificaron pelis vistas en casa.",
+  };
+
+  const content = ranked.length
+    ? `
+      <p class="hint">Ordenado automáticamente por el promedio de las valoraciones de ambos (la crítica no influye acá). A medida que califiquen más pelis, esto se va a ir acomodando solo.</p>
+      <div class="top10-list">${ranked.map((x, i) => top10Row(x.m, x.avg, i + 1)).join("")}</div>
+    `
+    : `<div class="empty-state">${emptyMsgs[mode]}</div>`;
+
+  $app.innerHTML = shell(
+    "top10",
+    `<div class="section-head"><h2>${titles[mode]}</h2></div>
+     <div class="view-toggle">
+       <button class="toggle-btn ${mode === "global" ? "active" : ""}" onclick="setTop10Mode('global')">🌎 Global</button>
+       <button class="toggle-btn ${mode === "cine" ? "active" : ""}" onclick="setTop10Mode('cine')">🎬 Cine</button>
+       <button class="toggle-btn ${mode === "casa" ? "active" : ""}" onclick="setTop10Mode('casa')">🏠 Casa</button>
+     </div>
+     ${content}`
+  );
 }
 
 function top10Row(m, avg, rank) {
@@ -887,6 +1029,377 @@ function catalogModalContent(kind, m, critic) {
   `;
 }
 
+// ---------------- series ----------------
+
+function showAvgScore(s) {
+  const scores = (s.show_ratings || []).map((r) => Number(r.score));
+  if (!scores.length) return null;
+  return scores.reduce((a, b) => a + b, 0) / scores.length;
+}
+
+function showRatingFor(show, user) {
+  return (show.show_ratings || []).find((r) => r.user_name === user) || null;
+}
+
+async function renderSeries() {
+  $app.innerHTML = shell("series", `<p class="hint">Cargando series…</p>`);
+  try {
+    if (!STATE.showsLoaded) {
+      STATE.shows = await DB.listShows();
+      STATE.showsLoaded = true;
+    }
+    renderSeriesContent();
+  } catch (e) {
+    $app.innerHTML = shell("series", errorBlock(e));
+  }
+}
+
+function renderSeriesContent() {
+  const list = STATE.shows;
+  const grid = list.length
+    ? `<div class="grid">${list.map(showCard).join("")}</div>`
+    : `<div class="empty-state">Todavía no cargaron ninguna serie 📺</div>`;
+
+  $app.innerHTML = shell(
+    "series",
+    `<div class="section-head"><h2>📺 Series</h2><button class="btn primary small" onclick="startAddShowFlow()">+ Agregar serie</button></div>
+     ${grid}
+     <div id="showRecsContainer" style="margin-top:30px;"></div>`
+  );
+  loadShowRecommendations();
+}
+
+function showCard(s) {
+  const avg = showAvgScore(s);
+  const poster = TMDB.posterUrl(s.poster_path, true) || placeholderPoster();
+  return `
+    <div class="movie-card" onclick="go('#/show/${s.id}')">
+      <img class="poster" src="${poster}" alt="${escapeHtml(s.title)}" onerror="this.src='${placeholderPoster()}'" />
+      <div class="info">
+        <div class="title">${escapeHtml(s.title)}</div>
+        <div class="year">${year(s.first_air_date)}${s.genre_names ? ` · ${escapeHtml(s.genre_names.split(", ")[0])}` : ""}</div>
+        ${avg !== null ? `<div class="score-pill">⭐ ${avg.toFixed(1)}</div>` : `<div class="score-pill" style="opacity:.5">sin calificar</div>`}
+      </div>
+    </div>
+  `;
+}
+
+async function loadShowRecommendations() {
+  const container = document.getElementById("showRecsContainer");
+  if (!container) return;
+
+  const rated = STATE.shows
+    .map((s) => ({ s, avg: showAvgScore(s) }))
+    .filter((x) => x.avg !== null && x.avg >= 7)
+    .sort((a, b) => b.avg - a.avg)
+    .slice(0, 3);
+
+  if (!rated.length) {
+    container.innerHTML = "";
+    return;
+  }
+
+  container.innerHTML = `<div class="section-head"><h3>Recomendadas para ustedes</h3></div><p class="hint">Cargando recomendaciones…</p>`;
+
+  try {
+    const loggedIds = new Set(STATE.shows.map((s) => s.tmdb_id).filter(Boolean));
+    const lists = await Promise.all(rated.map((x) => TMDB.tvRecommendations(x.s.tmdb_id).catch(() => [])));
+    const seen = new Set();
+    const merged = [];
+    lists.flat().forEach((item) => {
+      if (loggedIds.has(item.id) || seen.has(item.id)) return;
+      seen.add(item.id);
+      merged.push(item);
+    });
+    const top = merged.sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 8);
+
+    container.innerHTML = top.length
+      ? `<div class="section-head"><h3>Recomendadas para ustedes</h3></div>
+         <p class="hint">Basado en las series que más les gustaron.</p>
+         <div class="grid">${top.map(recommendedShowCard).join("")}</div>`
+      : "";
+  } catch (e) {
+    container.innerHTML = "";
+    console.error(e);
+  }
+}
+
+function recommendedShowCard(r) {
+  const poster = TMDB.posterUrl(r.poster_path, true) || placeholderPoster();
+  return `
+    <div class="movie-card" onclick="addRecommendedShow(${r.id})">
+      <img class="poster" src="${poster}" alt="${escapeHtml(r.name)}" onerror="this.src='${placeholderPoster()}'" />
+      <div class="info">
+        <div class="title">${escapeHtml(r.name)}</div>
+        <div class="year">${year(r.first_air_date)}${r.genre_names ? ` · ${escapeHtml(r.genre_names.split(", ")[0])}` : ""}</div>
+        <div class="score-pill">+ agregar</div>
+      </div>
+    </div>
+  `;
+}
+
+async function addRecommendedShow(tmdbId) {
+  try {
+    const details = await TMDB.getTVDetails(tmdbId);
+    STATE.showSearch.picked = { ...details, watched_at: new Date().toISOString().slice(0, 10) };
+    go("#/add-series");
+  } catch (e) {
+    toast("Error trayendo detalles de la serie");
+    console.error(e);
+  }
+}
+
+function startAddShowFlow() {
+  STATE.showSearch = { query: "", results: [], picked: null };
+  go("#/add-series");
+}
+
+function renderAddShow() {
+  $app.innerHTML = shell("series", addShowContent());
+}
+
+function addShowContent() {
+  if (STATE.showSearch.picked) return addShowForm(STATE.showSearch.picked);
+
+  return `
+    <div class="section-head"><h2>Buscar serie</h2></div>
+    <div class="search-row">
+      <input type="search" placeholder="Ej: Severance" oninput="onShowSearchInput(this.value)" />
+    </div>
+    <div class="search-results" id="showSearchResults">
+      ${STATE.showSearch.results.map(showSearchResultRow).join("")}
+    </div>
+  `;
+}
+
+let showSearchDebounce;
+function onShowSearchInput(value) {
+  STATE.showSearch.query = value;
+  clearTimeout(showSearchDebounce);
+  if (!value.trim()) {
+    STATE.showSearch.results = [];
+    document.getElementById("showSearchResults").innerHTML = "";
+    return;
+  }
+  showSearchDebounce = setTimeout(async () => {
+    try {
+      const results = await TMDB.searchTV(value);
+      STATE.showSearch.results = results.slice(0, 8);
+      document.getElementById("showSearchResults").innerHTML = STATE.showSearch.results.map(showSearchResultRow).join("");
+    } catch (e) {
+      toast("Error buscando series en TMDb");
+      console.error(e);
+    }
+  }, 400);
+}
+
+function showSearchResultRow(r) {
+  return `
+    <div class="result-row" onclick="pickShowSearchResult(${r.id})">
+      <img src="${TMDB.posterUrl(r.poster_path, true) || placeholderPoster()}" onerror="this.src='${placeholderPoster()}'" />
+      <div>
+        <div class="rtitle">${escapeHtml(r.name)}</div>
+        <div class="ryear">${year(r.first_air_date)}</div>
+      </div>
+    </div>
+  `;
+}
+
+async function pickShowSearchResult(tmdbId) {
+  try {
+    const details = await TMDB.getTVDetails(tmdbId);
+    STATE.showSearch.picked = { ...details, watched_at: new Date().toISOString().slice(0, 10) };
+    $app.innerHTML = shell("series", addShowContent());
+  } catch (e) {
+    toast("Error trayendo detalles de la serie");
+    console.error(e);
+  }
+}
+
+function addShowForm(s) {
+  return `
+    <div class="section-head"><h2>Confirmá los datos</h2></div>
+    <div class="detail-hero">
+      <img class="poster" src="${TMDB.posterUrl(s.poster_path) || placeholderPoster()}" onerror="this.src='${placeholderPoster()}'" />
+      <div class="meta">
+        <h2>${escapeHtml(s.title)}</h2>
+        <div class="chips">
+          <span class="chip">📅 ${fmtDate(s.first_air_date)}</span>
+          ${s.number_of_seasons ? `<span class="chip">📀 ${s.number_of_seasons} temporada${s.number_of_seasons > 1 ? "s" : ""}</span>` : ""}
+          ${s.creator ? `<span class="chip">🎬 ${escapeHtml(s.creator)}</span>` : ""}
+          ${s.genre_names ? `<span class="chip">🎭 ${escapeHtml(s.genre_names)}</span>` : ""}
+        </div>
+        <p style="font-size:13px;color:var(--teal-dark)">${escapeHtml(s.cast_names)}</p>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>¿Cuándo la agregan?</label>
+      <input type="date" id="fs_watched_at" value="${s.watched_at}" />
+    </div>
+
+    <div style="display:flex; gap:10px;">
+      <button class="btn ghost" onclick="STATE.showSearch.picked=null; renderAddShow();">Volver a buscar</button>
+      <button class="btn primary" onclick="submitAddShow()">Guardar</button>
+    </div>
+  `;
+}
+
+async function submitAddShow() {
+  const s = STATE.showSearch.picked;
+  s.watched_at = document.getElementById("fs_watched_at").value;
+  s.added_by = STATE.user;
+
+  try {
+    const saved = await DB.addShow(s);
+    STATE.showsLoaded = false;
+    toast("¡Serie agregada! 🎉");
+    go(`#/show/${saved.id}`);
+  } catch (e) {
+    toast("Error guardando la serie");
+    console.error(e);
+  }
+}
+
+async function renderShowDetail(id) {
+  $app.innerHTML = shell("series", `<p class="hint">Cargando serie…</p>`);
+  try {
+    const s = await DB.getShow(id);
+    $app.innerHTML = shell("series", showDetailContent(s));
+  } catch (e) {
+    $app.innerHTML = shell("series", errorBlock(e));
+  }
+}
+
+function showDetailContent(s) {
+  return `
+    <button class="link-btn" style="margin-bottom:14px" onclick="go('#/series')">← volver</button>
+    <div class="detail-hero">
+      <img class="poster" src="${TMDB.posterUrl(s.poster_path) || placeholderPoster()}" onerror="this.src='${placeholderPoster()}'" />
+      <div class="meta">
+        <h2>${escapeHtml(s.title)}</h2>
+        <div class="chips">
+          <span class="chip">📅 ${fmtDate(s.first_air_date)}</span>
+          ${s.number_of_seasons ? `<span class="chip">📀 ${s.number_of_seasons} temporada${s.number_of_seasons > 1 ? "s" : ""}</span>` : ""}
+          ${s.creator ? `<span class="chip">🎬 ${escapeHtml(s.creator)}</span>` : ""}
+          ${s.original_language ? `<span class="chip">🗣️ ${TMDB.languageName(s.original_language)}</span>` : ""}
+          ${s.genre_names ? `<span class="chip">🎭 ${escapeHtml(s.genre_names)}</span>` : ""}
+        </div>
+        <p style="font-size:13px">${escapeHtml(s.overview || "")}</p>
+        <div class="fact-grid">
+          <div class="fact"><div class="k">Elenco</div><div class="v">${escapeHtml(s.cast_names || "—")}</div></div>
+        </div>
+        ${
+          s.trailer_key
+            ? `<button class="btn ghost small" style="margin-top:10px" onclick="window.open('https://www.youtube.com/watch?v=${s.trailer_key}', '_blank')">▶️ Ver tráiler</button>`
+            : ""
+        }
+      </div>
+    </div>
+
+    <div class="ratings-cols">
+      ${showRatingCard(s, "cami")}
+      ${showRatingCard(s, "lauti")}
+    </div>
+
+    <div style="margin-top:30px;">
+      <button class="link-btn" onclick="confirmDeleteShow('${s.id}')">eliminar esta serie</button>
+    </div>
+  `;
+}
+
+function showRatingCard(show, user) {
+  const u = USERS[user];
+  const rating = showRatingFor(show, user);
+  const isMe = STATE.user === user;
+
+  if (rating && !isMe) {
+    return `
+      <div class="rating-card">
+        <h3>${u.emoji} ${u.name}</h3>
+        <div class="score-display">${Number(rating.score).toFixed(1)}</div>
+        <p>${escapeHtml(rating.comment || "")}</p>
+      </div>
+    `;
+  }
+
+  if (rating && isMe) {
+    return `
+      <div class="rating-card">
+        <h3>${u.emoji} ${u.name} (vos)</h3>
+        <div class="score-display">${Number(rating.score).toFixed(1)}</div>
+        <p>${escapeHtml(rating.comment || "")}</p>
+        <button class="btn small ghost" onclick="renderShowRatingForm('${show.id}', '${user}', ${rating.score}, \`${(rating.comment || "").replace(/`/g, "'")}\`)">editar</button>
+      </div>
+      <div id="showratingform-${show.id}-${user}"></div>
+    `;
+  }
+
+  if (!rating && isMe) {
+    return `
+      <div class="rating-card" id="showratingcard-${show.id}-${user}">
+        <h3>${u.emoji} ${u.name} (vos)</h3>
+        ${showRatingFormInner(show.id, user, 7, "")}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="rating-card">
+      <h3>${u.emoji} ${u.name}</h3>
+      <p class="pending">Todavía no calificó esta serie.</p>
+    </div>
+  `;
+}
+
+function showRatingFormInner(showId, user, score, comment) {
+  return `
+    <div class="field">
+      <label>Puntaje: <span id="showscoreval-${showId}-${user}">${score}</span>/10</label>
+      <div class="score-slider-row">
+        <input type="range" min="1" max="10" step="0.5" value="${score}" oninput="document.getElementById('showscoreval-${showId}-${user}').textContent=this.value" id="showscoreinput-${showId}-${user}" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Comentario corto</label>
+      <textarea id="showcommentinput-${showId}-${user}" placeholder="¿Qué te pareció?">${comment}</textarea>
+    </div>
+    <button class="btn primary small" onclick="submitShowRating('${showId}', '${user}')">Guardar valoración</button>
+  `;
+}
+
+function renderShowRatingForm(showId, user, score, comment) {
+  const el = document.getElementById(`showratingform-${showId}-${user}`);
+  el.innerHTML = `<div class="rating-card" style="margin-top:10px;">${showRatingFormInner(showId, user, score, comment)}</div>`;
+}
+
+async function submitShowRating(showId, user) {
+  const score = Number(document.getElementById(`showscoreinput-${showId}-${user}`).value);
+  const comment = document.getElementById(`showcommentinput-${showId}-${user}`).value;
+  try {
+    await DB.upsertShowRating({ show_id: showId, user_name: user, score, comment });
+    STATE.showsLoaded = false;
+    toast("¡Valoración guardada! ⭐");
+    renderShowDetail(showId);
+  } catch (e) {
+    toast("Error guardando la valoración");
+    console.error(e);
+  }
+}
+
+async function confirmDeleteShow(id) {
+  if (!confirm("¿Seguro que querés borrar esta serie?")) return;
+  try {
+    await DB.deleteShow(id);
+    STATE.showsLoaded = false;
+    toast("Serie eliminada");
+    go("#/series");
+  } catch (e) {
+    toast("Error eliminando");
+    console.error(e);
+  }
+}
+
 // ---------------- router ----------------
 
 function router() {
@@ -897,13 +1410,18 @@ function router() {
 
   const hash = window.location.hash || "#/";
   const movieMatch = hash.match(/^#\/movie\/(.+)$/);
+  const showMatch = hash.match(/^#\/show\/(.+)$/);
 
   if (hash === "#/" || hash === "") renderVistas();
+  else if (hash === "#/casa") renderEnCasa();
   else if (hash === "#/add") renderAdd();
+  else if (hash === "#/add-series") renderAddShow();
+  else if (hash === "#/series") renderSeries();
   else if (hash === "#/top10") renderTop10();
   else if (hash === "#/estrenos") renderEstrenos();
   else if (hash === "#/estrenadas") renderEstrenadas();
   else if (movieMatch) renderDetail(movieMatch[1]);
+  else if (showMatch) renderShowDetail(showMatch[1]);
   else renderVistas();
 }
 
