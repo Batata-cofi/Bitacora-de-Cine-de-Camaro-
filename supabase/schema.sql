@@ -65,6 +65,7 @@ create table if not exists shows (
   trailer_key text,
   watched_at date not null default current_date,
   added_by text check (added_by in ('cami', 'lauti')),
+  owner text default 'together' check (owner in ('cami', 'lauti', 'together')),
   created_at timestamptz default now()
 );
 

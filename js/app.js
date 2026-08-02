@@ -1114,32 +1114,88 @@ function showRatingFor(show, user) {
   return (show.show_ratings || []).find((r) => r.user_name === user) || null;
 }
 
+const SHOW_OWNERS = {
+  cami: { label: "Series de Cami", emoji: "🧚" },
+  lauti: { label: "Series de Lauti", emoji: "🎬" },
+  together: { label: "Estamos viendo", emoji: "👀" },
+};
+
+async function ensureShowsLoaded() {
+  if (!STATE.showsLoaded) {
+    STATE.shows = await DB.listShows();
+    STATE.showsLoaded = true;
+  }
+}
+
 async function renderSeries() {
   $app.innerHTML = shell("series", `<p class="hint">Cargando series…</p>`);
   try {
-    if (!STATE.showsLoaded) {
-      STATE.shows = await DB.listShows();
-      STATE.showsLoaded = true;
-    }
-    renderSeriesContent();
+    await ensureShowsLoaded();
+    renderSeriesHome();
   } catch (e) {
     $app.innerHTML = shell("series", errorBlock(e));
   }
 }
 
-function renderSeriesContent() {
-  const list = STATE.shows;
+async function renderSeriesFolderRoute(owner) {
+  $app.innerHTML = shell("series", `<p class="hint">Cargando series…</p>`);
+  try {
+    await ensureShowsLoaded();
+    renderSeriesFolder(owner);
+  } catch (e) {
+    $app.innerHTML = shell("series", errorBlock(e));
+  }
+}
+
+function seriesFolderCount(owner) {
+  return STATE.shows.filter((s) => (s.owner || "together") === owner).length;
+}
+
+function renderSeriesHome() {
+  $app.innerHTML = shell(
+    "series",
+    `<div class="section-head"><h2>📺 Series</h2></div>
+     <p class="hint">Elegí una carpeta.</p>
+     <div class="picker-cards" style="justify-content:flex-start;">
+       ${Object.entries(SHOW_OWNERS)
+         .map(
+           ([key, o]) => `
+         <div class="picker-card owner-${key}" style="width:170px;" onclick="go('#/series/${key}')">
+           <div class="emoji">${o.emoji}</div>
+           <div class="name">${o.label}</div>
+           <div class="sub-label">${seriesFolderCount(key)} serie${seriesFolderCount(key) === 1 ? "" : "s"}</div>
+         </div>
+       `
+         )
+         .join("")}
+     </div>
+     <div id="showRecsContainer" style="margin-top:34px;"></div>`
+  );
+  loadShowRecommendations();
+}
+
+function renderSeriesFolder(owner) {
+  const meta = SHOW_OWNERS[owner];
+  if (!meta) {
+    renderSeriesHome();
+    return;
+  }
+  const list = STATE.shows.filter((s) => (s.owner || "together") === owner);
+  const canAdd = owner === "together" || owner === STATE.user;
+
   const grid = list.length
     ? `<div class="grid">${list.map(showCard).join("")}</div>`
-    : `<div class="empty-state">Todavía no cargaron ninguna serie 📺</div>`;
+    : `<div class="empty-state">Todavía no hay series acá 📺</div>`;
 
   $app.innerHTML = shell(
     "series",
-    `<div class="section-head"><h2>📺 Series</h2><button class="btn primary small" onclick="startAddShowFlow()">+ Agregar serie</button></div>
-     ${grid}
-     <div id="showRecsContainer" style="margin-top:30px;"></div>`
+    `<button class="link-btn" style="margin-bottom:14px" onclick="go('#/series')">← volver a carpetas</button>
+     <div class="section-head">
+       <h2>${meta.emoji} ${meta.label}</h2>
+       ${canAdd ? `<button class="btn primary small" onclick="startAddShowFlow('${owner}')">+ Agregar serie</button>` : ""}
+     </div>
+     ${grid}`
   );
-  loadShowRecommendations();
 }
 
 function showCard(s) {
@@ -1246,6 +1302,7 @@ async function addRecommendedShow(tmdbId) {
   try {
     const details = await TMDB.getTVDetails(tmdbId);
     STATE.showSearch.picked = { ...details, watched_at: new Date().toISOString().slice(0, 10) };
+    STATE.showSearch.targetOwner = "together";
     go("#/add-series");
   } catch (e) {
     toast("Error trayendo detalles de la serie");
@@ -1253,8 +1310,8 @@ async function addRecommendedShow(tmdbId) {
   }
 }
 
-function startAddShowFlow() {
-  STATE.showSearch = { query: "", results: [], picked: null };
+function startAddShowFlow(owner) {
+  STATE.showSearch = { query: "", results: [], picked: null, targetOwner: owner || "together" };
   go("#/add-series");
 }
 
@@ -1370,9 +1427,13 @@ async function submitAddShow() {
   const s = STATE.showSearch.picked;
   s.watched_at = document.getElementById("fs_watched_at").value;
   s.added_by = STATE.user;
+  s.owner = STATE.showSearch.targetOwner || "together";
+
+  const payload = { ...s };
+  delete payload._providers;
 
   try {
-    const saved = await DB.addShow(s);
+    const saved = await DB.addShow(payload);
     STATE.showsLoaded = false;
     toast("¡Serie agregada! 🎉");
     go(`#/show/${saved.id}`);
@@ -1394,8 +1455,14 @@ async function renderShowDetail(id) {
 }
 
 function showDetailContent(s, providers) {
+  const owner = s.owner || "together";
+  const ratingsHtml =
+    owner === "together"
+      ? `<div class="ratings-cols">${showRatingCard(s, "cami")}${showRatingCard(s, "lauti")}</div>`
+      : `<div class="ratings-cols" style="grid-template-columns:1fr; max-width:360px;">${showRatingCard(s, owner)}</div>`;
+
   return `
-    <button class="link-btn" style="margin-bottom:14px" onclick="go('#/series')">← volver</button>
+    <button class="link-btn" style="margin-bottom:14px" onclick="go('#/series/${owner}')">← volver</button>
     <div class="detail-hero">
       <img class="poster" src="${TMDB.posterUrl(s.poster_path) || placeholderPoster()}" onerror="this.src='${placeholderPoster()}'" />
       <div class="meta">
@@ -1420,10 +1487,7 @@ function showDetailContent(s, providers) {
       </div>
     </div>
 
-    <div class="ratings-cols">
-      ${showRatingCard(s, "cami")}
-      ${showRatingCard(s, "lauti")}
-    </div>
+    ${ratingsHtml}
 
     <div style="margin-top:30px;">
       <button class="link-btn" onclick="confirmDeleteShow('${s.id}')">eliminar esta serie</button>
@@ -1538,12 +1602,14 @@ function router() {
   const hash = window.location.hash || "#/";
   const movieMatch = hash.match(/^#\/movie\/(.+)$/);
   const showMatch = hash.match(/^#\/show\/(.+)$/);
+  const showFolderMatch = hash.match(/^#\/series\/(cami|lauti|together)$/);
 
   if (hash === "#/" || hash === "") renderVistas();
   else if (hash === "#/casa") renderEnCasa();
   else if (hash === "#/add") renderAdd();
   else if (hash === "#/add-series") renderAddShow();
   else if (hash === "#/series") renderSeries();
+  else if (showFolderMatch) renderSeriesFolderRoute(showFolderMatch[1]);
   else if (hash === "#/top10") renderTop10();
   else if (hash === "#/estrenos") renderEstrenos();
   else if (hash === "#/estrenadas") renderEstrenadas();
