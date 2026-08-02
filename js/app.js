@@ -1,7 +1,7 @@
 // Bitácora de Cine de Camaro — lógica principal (sin framework, sin build step)
 
 const USERS = {
-  cami: { name: "Cami", emoji: "🎀", cls: "cami" },
+  cami: { name: "Cami", emoji: "🧚", cls: "cami" },
   lauti: { name: "Lauti", emoji: "🎬", cls: "lauti" },
 };
 
@@ -122,7 +122,7 @@ function renderPicker() {
       </div>
       <div class="picker-cards">
         <div class="picker-card cami" onclick="pickUser('cami')">
-          <div class="emoji">🎀</div>
+          <div class="emoji">🧚</div>
           <div class="name">Cami</div>
         </div>
         <div class="picker-card lauti" onclick="pickUser('lauti')">
@@ -710,7 +710,7 @@ function renderCatalogContent(kind) {
     `<div class="section-head"><h2>${title}</h2><button class="btn ghost small" onclick="refreshCatalog('${kind}')">🔄 Actualizar</button></div>
      <p class="hint">${hint}</p>
      <div class="view-toggle">
-       <button class="toggle-btn ${state.viewMode === "us" ? "active" : ""}" onclick="setCatalogView('${kind}', 'us')">🎀🎬 Lo que opinamos nosotros</button>
+       <button class="toggle-btn ${state.viewMode === "us" ? "active" : ""}" onclick="setCatalogView('${kind}', 'us')">🧚🎬 Lo que opinamos nosotros</button>
        <button class="toggle-btn ${state.viewMode === "critics" ? "active" : ""}" onclick="setCatalogView('${kind}', 'critics')">📰 Lo que opina la crítica</button>
      </div>
      ${content}`
