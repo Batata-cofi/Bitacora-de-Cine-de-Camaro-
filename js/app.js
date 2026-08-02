@@ -14,6 +14,7 @@ const EXPECTATIONS = {
 
 const STATE = {
   user: localStorage.getItem("bitacora_cine_user") || null,
+  context: null,
   movies: [],
   moviesLoaded: false,
   search: { query: "", results: [], picked: null },
@@ -90,7 +91,38 @@ function go(hash) {
 
 // ---------------- shell ----------------
 
+function applyTheme() {
+  document.body.classList.remove("theme-casa-peli", "theme-casa-serie");
+  if (STATE.context === "casa-peli") document.body.classList.add("theme-casa-peli");
+  if (STATE.context === "casa-serie") document.body.classList.add("theme-casa-serie");
+}
+
+function tabsForContext(activeTab) {
+  if (STATE.context === "casa-peli") {
+    return `
+      <button class="tab ${activeTab === "casa" ? "active" : ""}" onclick="go('#/casa')">🏠 Pelis en casa</button>
+      <button class="tab ${activeTab === "top10" ? "active" : ""}" onclick="go('#/top10')">Top 10</button>
+      <button class="tab ${activeTab === "add" ? "active" : ""}" onclick="startAddFlow()">+ Agregar peli</button>
+    `;
+  }
+  if (STATE.context === "casa-serie") {
+    return `
+      <button class="tab ${activeTab === "series" ? "active" : ""}" onclick="go('#/series')">📺 Series</button>
+      <button class="tab ${activeTab === "top10" ? "active" : ""}" onclick="go('#/top10')">Top 10</button>
+      <button class="tab ${activeTab === "add" ? "active" : ""}" onclick="startAddShowFlow()">+ Agregar serie</button>
+    `;
+  }
+  return `
+    <button class="tab ${activeTab === "vistas" ? "active" : ""}" onclick="go('#/')">Vistas</button>
+    <button class="tab ${activeTab === "estrenadas" ? "active" : ""}" onclick="go('#/estrenadas')">🎬 Estrenadas</button>
+    <button class="tab ${activeTab === "estrenos" ? "active" : ""}" onclick="go('#/estrenos')">🇦🇷 Estrenos</button>
+    <button class="tab ${activeTab === "top10" ? "active" : ""}" onclick="go('#/top10')">Top 10</button>
+    <button class="tab ${activeTab === "add" ? "active" : ""}" onclick="startAddFlow()">+ Agregar peli</button>
+  `;
+}
+
 function shell(activeTab, contentHtml) {
+  applyTheme();
   const u = USERS[STATE.user];
   return `
     <div class="topbar">
@@ -101,17 +133,12 @@ function shell(activeTab, contentHtml) {
       <div class="who">
         <div class="avatar ${u.cls}">${u.emoji}</div>
         <span>${u.name}</span>
-        <button class="link-btn" onclick="switchUser()">cambiar</button>
+        <button class="link-btn" onclick="changeContext()">🔀 cambiar vista</button>
+        <button class="link-btn" onclick="switchUser()">cambiar usuario</button>
       </div>
     </div>
     <div class="tabs">
-      <button class="tab ${activeTab === "vistas" ? "active" : ""}" onclick="go('#/')">Vistas</button>
-      <button class="tab ${activeTab === "casa" ? "active" : ""}" onclick="go('#/casa')">🏠 En casa</button>
-      <button class="tab ${activeTab === "estrenadas" ? "active" : ""}" onclick="go('#/estrenadas')">🎬 Estrenadas</button>
-      <button class="tab ${activeTab === "estrenos" ? "active" : ""}" onclick="go('#/estrenos')">🇦🇷 Estrenos</button>
-      <button class="tab ${activeTab === "series" ? "active" : ""}" onclick="go('#/series')">📺 Series</button>
-      <button class="tab ${activeTab === "top10" ? "active" : ""}" onclick="go('#/top10')">Top 10</button>
-      <button class="tab ${activeTab === "add" ? "active" : ""}" onclick="startAddFlow()">+ Agregar peli</button>
+      ${tabsForContext(activeTab)}
     </div>
     <div>${contentHtml}</div>
   `;
@@ -143,12 +170,51 @@ function renderPicker() {
 function pickUser(user) {
   STATE.user = user;
   localStorage.setItem("bitacora_cine_user", user);
-  go("#/");
+  STATE.context = null;
   router();
+}
+
+function renderContextPicker() {
+  document.body.classList.remove("theme-casa-peli", "theme-casa-serie");
+  $app.innerHTML = `
+    <div class="picker-screen">
+      <div>
+        <div class="display">🎟️ ¿Qué van a ver hoy?</div>
+        <p class="sub">Elegí la sección para arrancar.</p>
+      </div>
+      <div class="picker-cards">
+        <div class="picker-card ctx-cine" onclick="pickContext('cine')">
+          <div class="emoji">🎬</div>
+          <div class="name">Cine</div>
+        </div>
+        <div class="picker-card ctx-casa-peli" onclick="pickContext('casa-peli')">
+          <div class="emoji">🏠🎞️</div>
+          <div class="name">Peli en casa</div>
+        </div>
+        <div class="picker-card ctx-casa-serie" onclick="pickContext('casa-serie')">
+          <div class="emoji">📺</div>
+          <div class="name">Serie en casa</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function pickContext(context) {
+  STATE.context = context;
+  const defaultHash = context === "casa-peli" ? "#/casa" : context === "casa-serie" ? "#/series" : "#/";
+  if (window.location.hash === defaultHash) router();
+  else go(defaultHash);
+}
+
+function changeContext() {
+  STATE.context = null;
+  renderContextPicker();
 }
 
 function switchUser() {
   STATE.user = null;
+  STATE.context = null;
   localStorage.removeItem("bitacora_cine_user");
   router();
 }
@@ -1084,17 +1150,23 @@ function showCard(s) {
   `;
 }
 
+function topShowsFor(user) {
+  return STATE.shows
+    .map((s) => ({ s, rating: showRatingFor(s, user) }))
+    .filter((x) => x.rating && Number(x.rating.score) >= 7)
+    .sort((a, b) => Number(b.rating.score) - Number(a.rating.score))
+    .slice(0, 3)
+    .map((x) => x.s);
+}
+
 async function loadShowRecommendations() {
   const container = document.getElementById("showRecsContainer");
   if (!container) return;
 
-  const rated = STATE.shows
-    .map((s) => ({ s, avg: showAvgScore(s) }))
-    .filter((x) => x.avg !== null && x.avg >= 7)
-    .sort((a, b) => b.avg - a.avg)
-    .slice(0, 3);
+  const camiTop = topShowsFor("cami");
+  const lautiTop = topShowsFor("lauti");
 
-  if (!rated.length) {
+  if (!camiTop.length && !lautiTop.length) {
     container.innerHTML = "";
     return;
   }
@@ -1103,21 +1175,46 @@ async function loadShowRecommendations() {
 
   try {
     const loggedIds = new Set(STATE.shows.map((s) => s.tmdb_id).filter(Boolean));
-    const lists = await Promise.all(rated.map((x) => TMDB.tvRecommendations(x.s.tmdb_id).catch(() => [])));
-    const seen = new Set();
-    const merged = [];
-    lists.flat().forEach((item) => {
-      if (loggedIds.has(item.id) || seen.has(item.id)) return;
-      seen.add(item.id);
-      merged.push(item);
-    });
-    const top = merged.sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 8);
 
-    container.innerHTML = top.length
-      ? `<div class="section-head"><h3>Recomendadas para ustedes</h3></div>
-         <p class="hint">Basado en las series que más les gustaron.</p>
-         <div class="grid">${top.map(recommendedShowCard).join("")}</div>`
-      : "";
+    const camiRecs = (await Promise.all(camiTop.map((s) => TMDB.tvRecommendations(s.tmdb_id).catch(() => [])))).flat();
+    const lautiRecs = (await Promise.all(lautiTop.map((s) => TMDB.tvRecommendations(s.tmdb_id).catch(() => [])))).flat();
+
+    const camiIds = new Set(camiRecs.map((x) => x.id));
+    const lautiIds = new Set(lautiRecs.map((x) => x.id));
+
+    const byId = new Map();
+    [...camiRecs, ...lautiRecs].forEach((item) => {
+      if (loggedIds.has(item.id) || byId.has(item.id)) return;
+      byId.set(item.id, item);
+    });
+
+    const both = [];
+    const rest = [];
+    byId.forEach((item, id) => {
+      if (camiTop.length && lautiTop.length && camiIds.has(id) && lautiIds.has(id)) both.push(item);
+      else rest.push(item);
+    });
+
+    both.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+    rest.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+
+    let html = "";
+    if (both.length) {
+      html += `
+        <div class="section-head"><h3>🎯 Para ver juntos</h3></div>
+        <p class="hint">Aparecen entre las recomendaciones de ambos, según lo que a cada uno le gustó.</p>
+        <div class="grid">${both.slice(0, 6).map(recommendedShowCard).join("")}</div>
+      `;
+    }
+    if (rest.length) {
+      html += `
+        <div class="section-head" style="margin-top:${both.length ? "26px" : "0"};"><h3>Otras recomendadas</h3></div>
+        <p class="hint">Basado en las series que más les gustaron.</p>
+        <div class="grid">${rest.slice(0, 8).map(recommendedShowCard).join("")}</div>
+      `;
+    }
+
+    container.innerHTML = html;
   } catch (e) {
     container.innerHTML = "";
     console.error(e);
@@ -1210,6 +1307,18 @@ async function pickShowSearchResult(tmdbId) {
     const details = await TMDB.getTVDetails(tmdbId);
     STATE.showSearch.picked = { ...details, watched_at: new Date().toISOString().slice(0, 10) };
     $app.innerHTML = shell("series", addShowContent());
+    TMDB.getTVWatchProvidersAR(tmdbId)
+      .then((p) => {
+        if (STATE.showSearch.picked && STATE.showSearch.picked.tmdb_id === tmdbId) {
+          STATE.showSearch.picked._providers = p;
+          if (document.getElementById("showStreamingBlock")) {
+            document.getElementById("showStreamingBlock").innerHTML = streamingPickBlock(STATE.showSearch.picked);
+          }
+        }
+      })
+      .catch(() => {
+        STATE.showSearch.picked._providers = null;
+      });
   } catch (e) {
     toast("Error trayendo detalles de la serie");
     console.error(e);
@@ -1233,7 +1342,12 @@ function addShowForm(s) {
       </div>
     </div>
 
-    <div class="field">
+    <div class="predicted-before">
+      <h3>📺 Dónde verla en Argentina</h3>
+      <div id="showStreamingBlock">${streamingPickBlock(s)}</div>
+    </div>
+
+    <div class="field" style="margin-top:16px;">
       <label>¿Cuándo la agregan?</label>
       <input type="date" id="fs_watched_at" value="${s.watched_at}" />
     </div>
@@ -1265,13 +1379,14 @@ async function renderShowDetail(id) {
   $app.innerHTML = shell("series", `<p class="hint">Cargando serie…</p>`);
   try {
     const s = await DB.getShow(id);
-    $app.innerHTML = shell("series", showDetailContent(s));
+    const providers = s.tmdb_id ? await TMDB.getTVWatchProvidersAR(s.tmdb_id).catch(() => null) : null;
+    $app.innerHTML = shell("series", showDetailContent(s, providers));
   } catch (e) {
     $app.innerHTML = shell("series", errorBlock(e));
   }
 }
 
-function showDetailContent(s) {
+function showDetailContent(s, providers) {
   return `
     <button class="link-btn" style="margin-bottom:14px" onclick="go('#/series')">← volver</button>
     <div class="detail-hero">
@@ -1294,6 +1409,7 @@ function showDetailContent(s) {
             ? `<button class="btn ghost small" style="margin-top:10px" onclick="window.open('https://www.youtube.com/watch?v=${s.trailer_key}', '_blank')">▶️ Ver tráiler</button>`
             : ""
         }
+        ${streamingCompareBlock(providers)}
       </div>
     </div>
 
@@ -1405,6 +1521,10 @@ async function confirmDeleteShow(id) {
 function router() {
   if (!STATE.user) {
     renderPicker();
+    return;
+  }
+  if (!STATE.context) {
+    renderContextPicker();
     return;
   }
 

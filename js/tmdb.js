@@ -153,6 +153,20 @@ const TMDB = {
     };
   },
 
+  async getTVWatchProvidersAR(tvId) {
+    const key = window.APP_CONFIG.TMDB_API_KEY;
+    const res = await fetch(`${TMDB_BASE}/tv/${tvId}/watch/providers?api_key=${key}`);
+    if (!res.ok) throw new Error("Error obteniendo plataformas de streaming");
+    const json = await res.json();
+    const ar = json.results?.AR || {};
+    return {
+      link: ar.link || null,
+      flatrate: (ar.flatrate || []).map((p) => p.provider_name),
+      rent: (ar.rent || []).map((p) => p.provider_name),
+      buy: (ar.buy || []).map((p) => p.provider_name),
+    };
+  },
+
   async searchTV(query) {
     const key = window.APP_CONFIG.TMDB_API_KEY;
     const url = `${TMDB_BASE}/search/tv?api_key=${key}&language=es-ES&query=${encodeURIComponent(query)}`;

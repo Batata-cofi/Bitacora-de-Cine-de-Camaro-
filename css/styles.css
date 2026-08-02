@@ -14,6 +14,24 @@
   --shadow: 0 6px 0 rgba(43, 36, 32, 0.12);
 }
 
+/* Peli en casa — naranja cobre */
+body.theme-casa-peli {
+  --cream: #f5e6d3;
+  --paper: #fbf1e4;
+  --terracotta: #bf5b1e;
+  --terracotta-dark: #93430f;
+  --mustard: #e0902f;
+}
+
+/* Serie en casa — verde musgo */
+body.theme-casa-serie {
+  --cream: #eaeddc;
+  --paper: #f3f5e8;
+  --terracotta: #6d7f3e;
+  --terracotta-dark: #4f5c2c;
+  --mustard: #9fae5c;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -205,6 +223,15 @@ h1, h2, h3, .display {
 
 .picker-card.cami { border-color: var(--rose); }
 .picker-card.lauti { border-color: var(--teal); }
+.picker-card.ctx-cine { border-color: #e2572b; }
+.picker-card.ctx-casa-peli { border-color: #bf5b1e; }
+.picker-card.ctx-casa-serie { border-color: #6d7f3e; }
+
+.picker-card .sub-label {
+  font-size: 11px;
+  color: var(--teal-dark);
+  margin-top: 4px;
+}
 
 .picker-card .name {
   font-family: 'Fraunces', serif;
