@@ -747,6 +747,7 @@ async function renderTop10() {
       STATE.movies = await DB.listMovies();
       STATE.moviesLoaded = true;
     }
+    await ensureShowsLoaded();
     renderTop10Content();
   } catch (e) {
     $app.innerHTML = shell("top10", errorBlock(e));
@@ -758,8 +759,38 @@ function setTop10Mode(mode) {
   renderTop10Content();
 }
 
+function top10Toggle(mode) {
+  return `
+    <div class="view-toggle">
+      <button class="toggle-btn ${mode === "global" ? "active" : ""}" onclick="setTop10Mode('global')">🌎 Global</button>
+      <button class="toggle-btn ${mode === "cine" ? "active" : ""}" onclick="setTop10Mode('cine')">🎬 Cine</button>
+      <button class="toggle-btn ${mode === "casa" ? "active" : ""}" onclick="setTop10Mode('casa')">🏠 Casa</button>
+      <button class="toggle-btn ${mode === "series" ? "active" : ""}" onclick="setTop10Mode('series')">📺 Series</button>
+    </div>
+  `;
+}
+
 function renderTop10Content() {
   const mode = STATE.top10Mode;
+
+  if (mode === "series") {
+    const ranked = STATE.shows
+      .map((s) => ({ s, avg: showAvgScore(s) }))
+      .filter((x) => x.avg !== null)
+      .sort((a, b) => b.avg - a.avg)
+      .slice(0, 5);
+
+    const content = ranked.length
+      ? `
+        <p class="hint">Top 5 series mejor calificadas (no afecta el Top de películas, son rankings separados).</p>
+        <div class="top10-list">${ranked.map((x, i) => topShowRow(x.s, x.avg, i + 1)).join("")}</div>
+      `
+      : `<div class="empty-state">Todavía no calificaron series.</div>`;
+
+    $app.innerHTML = shell("top10", `<div class="section-head"><h2>📺 Top 5 Series</h2></div>${top10Toggle(mode)}${content}`);
+    return;
+  }
+
   const pool = mode === "global" ? STATE.movies : STATE.movies.filter((m) => (m.watched_where || "cine") === mode);
 
   const ranked = pool
@@ -777,21 +808,12 @@ function renderTop10Content() {
 
   const content = ranked.length
     ? `
-      <p class="hint">Ordenado automáticamente por el promedio de las valoraciones de ambos (la crítica no influye acá). A medida que califiquen más pelis, esto se va a ir acomodando solo.</p>
+      <p class="hint">Ordenado automáticamente por el promedio de las valoraciones de ambos (la crítica no influye acá). Solo películas — las series tienen su propio Top 5.</p>
       <div class="top10-list">${ranked.map((x, i) => top10Row(x.m, x.avg, i + 1)).join("")}</div>
     `
     : `<div class="empty-state">${emptyMsgs[mode]}</div>`;
 
-  $app.innerHTML = shell(
-    "top10",
-    `<div class="section-head"><h2>${titles[mode]}</h2></div>
-     <div class="view-toggle">
-       <button class="toggle-btn ${mode === "global" ? "active" : ""}" onclick="setTop10Mode('global')">🌎 Global</button>
-       <button class="toggle-btn ${mode === "cine" ? "active" : ""}" onclick="setTop10Mode('cine')">🎬 Cine</button>
-       <button class="toggle-btn ${mode === "casa" ? "active" : ""}" onclick="setTop10Mode('casa')">🏠 Casa</button>
-     </div>
-     ${content}`
-  );
+  $app.innerHTML = shell("top10", `<div class="section-head"><h2>${titles[mode]}</h2></div>${top10Toggle(mode)}${content}`);
 }
 
 function top10Row(m, avg, rank) {
@@ -800,6 +822,17 @@ function top10Row(m, avg, rank) {
       <div class="rank">${rank}</div>
       <img src="${TMDB.posterUrl(m.poster_path, true) || placeholderPoster()}" onerror="this.src='${placeholderPoster()}'" />
       <div class="rtitle">${escapeHtml(m.title)} <span style="font-weight:400;color:var(--teal-dark)">(${year(m.release_date)})</span></div>
+      <div class="score-pill">⭐ ${avg.toFixed(1)}</div>
+    </div>
+  `;
+}
+
+function topShowRow(s, avg, rank) {
+  return `
+    <div class="top10-row" onclick="go('#/show/${s.id}')">
+      <div class="rank">${rank}</div>
+      <img src="${TMDB.posterUrl(s.poster_path, true) || placeholderPoster()}" onerror="this.src='${placeholderPoster()}'" />
+      <div class="rtitle">${escapeHtml(s.title)} <span style="font-weight:400;color:var(--teal-dark)">(${year(s.first_air_date)})</span></div>
       <div class="score-pill">⭐ ${avg.toFixed(1)}</div>
     </div>
   `;
@@ -1114,11 +1147,29 @@ function showRatingFor(show, user) {
   return (show.show_ratings || []).find((r) => r.user_name === user) || null;
 }
 
-const SHOW_OWNERS = {
+const SHOW_FOLDERS = {
   cami: { label: "Series de Cami", emoji: "🧚" },
   lauti: { label: "Series de Lauti", emoji: "🎬" },
   together: { label: "Estamos viendo", emoji: "👀" },
+  vistas: { label: "Vistas por Camaro", emoji: "✅" },
 };
+
+function bothRatedShow(s) {
+  return !!showRatingFor(s, "cami") && !!showRatingFor(s, "lauti");
+}
+
+function showsInFolder(folder) {
+  if (folder === "cami" || folder === "lauti") {
+    return STATE.shows.filter((s) => (s.owner || "together") === folder);
+  }
+  if (folder === "together") {
+    return STATE.shows.filter((s) => (s.owner || "together") === "together" && !bothRatedShow(s));
+  }
+  if (folder === "vistas") {
+    return STATE.shows.filter((s) => (s.owner || "together") === "together" && bothRatedShow(s));
+  }
+  return [];
+}
 
 async function ensureShowsLoaded() {
   if (!STATE.showsLoaded) {
@@ -1147,23 +1198,19 @@ async function renderSeriesFolderRoute(owner) {
   }
 }
 
-function seriesFolderCount(owner) {
-  return STATE.shows.filter((s) => (s.owner || "together") === owner).length;
-}
-
 function renderSeriesHome() {
   $app.innerHTML = shell(
     "series",
     `<div class="section-head"><h2>📺 Series</h2></div>
      <p class="hint">Elegí una carpeta.</p>
      <div class="picker-cards" style="justify-content:flex-start;">
-       ${Object.entries(SHOW_OWNERS)
+       ${Object.entries(SHOW_FOLDERS)
          .map(
            ([key, o]) => `
          <div class="picker-card owner-${key}" style="width:170px;" onclick="go('#/series/${key}')">
            <div class="emoji">${o.emoji}</div>
            <div class="name">${o.label}</div>
-           <div class="sub-label">${seriesFolderCount(key)} serie${seriesFolderCount(key) === 1 ? "" : "s"}</div>
+           <div class="sub-label">${showsInFolder(key).length} serie${showsInFolder(key).length === 1 ? "" : "s"}</div>
          </div>
        `
          )
@@ -1174,25 +1221,25 @@ function renderSeriesHome() {
   loadShowRecommendations();
 }
 
-function renderSeriesFolder(owner) {
-  const meta = SHOW_OWNERS[owner];
+function renderSeriesFolder(folder) {
+  const meta = SHOW_FOLDERS[folder];
   if (!meta) {
     renderSeriesHome();
     return;
   }
-  const list = STATE.shows.filter((s) => (s.owner || "together") === owner);
-  const canAdd = owner === "together" || owner === STATE.user;
+  const list = showsInFolder(folder);
+  const canAdd = folder === "together" || folder === "vistas" || folder === STATE.user;
+  const addTargetOwner = folder === "vistas" ? "together" : folder;
 
-  const grid = list.length
-    ? `<div class="grid">${list.map(showCard).join("")}</div>`
-    : `<div class="empty-state">Todavía no hay series acá 📺</div>`;
+  const emptyMsg = folder === "vistas" ? "Todavía no terminaron de calificar ninguna serie entre los dos 📺" : "Todavía no hay series acá 📺";
+  const grid = list.length ? `<div class="grid">${list.map(showCard).join("")}</div>` : `<div class="empty-state">${emptyMsg}</div>`;
 
   $app.innerHTML = shell(
     "series",
     `<button class="link-btn" style="margin-bottom:14px" onclick="go('#/series')">← volver a carpetas</button>
      <div class="section-head">
        <h2>${meta.emoji} ${meta.label}</h2>
-       ${canAdd ? `<button class="btn primary small" onclick="startAddShowFlow('${owner}')">+ Agregar serie</button>` : ""}
+       ${canAdd ? `<button class="btn primary small" onclick="startAddShowFlow('${addTargetOwner}')">+ Agregar serie</button>` : ""}
      </div>
      ${grid}`
   );
@@ -1460,9 +1507,10 @@ function showDetailContent(s, providers) {
     owner === "together"
       ? `<div class="ratings-cols">${showRatingCard(s, "cami")}${showRatingCard(s, "lauti")}</div>`
       : `<div class="ratings-cols" style="grid-template-columns:1fr; max-width:360px;">${showRatingCard(s, owner)}</div>`;
+  const backFolder = owner !== "together" ? owner : bothRatedShow(s) ? "vistas" : "together";
 
   return `
-    <button class="link-btn" style="margin-bottom:14px" onclick="go('#/series/${owner}')">← volver</button>
+    <button class="link-btn" style="margin-bottom:14px" onclick="go('#/series/${backFolder}')">← volver</button>
     <div class="detail-hero">
       <img class="poster" src="${TMDB.posterUrl(s.poster_path) || placeholderPoster()}" onerror="this.src='${placeholderPoster()}'" />
       <div class="meta">
@@ -1602,7 +1650,7 @@ function router() {
   const hash = window.location.hash || "#/";
   const movieMatch = hash.match(/^#\/movie\/(.+)$/);
   const showMatch = hash.match(/^#\/show\/(.+)$/);
-  const showFolderMatch = hash.match(/^#\/series\/(cami|lauti|together)$/);
+  const showFolderMatch = hash.match(/^#\/series\/(cami|lauti|together|vistas)$/);
 
   if (hash === "#/" || hash === "") renderVistas();
   else if (hash === "#/casa") renderEnCasa();

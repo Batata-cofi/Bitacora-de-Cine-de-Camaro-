@@ -243,6 +243,7 @@ h1, h2, h3, .display {
 .picker-card.owner-cami { border-color: var(--rose); }
 .picker-card.owner-lauti { border-color: var(--teal); }
 .picker-card.owner-together { border-color: var(--mustard); }
+.picker-card.owner-vistas { border-color: var(--terracotta); }
 
 .picker-card .sub-label {
   font-size: 11px;
