@@ -1537,10 +1537,39 @@ function showDetailContent(s, providers) {
 
     ${ratingsHtml}
 
+    ${moveFolderBlock(s)}
+
     <div style="margin-top:30px;">
       <button class="link-btn" onclick="confirmDeleteShow('${s.id}')">eliminar esta serie</button>
     </div>
   `;
+}
+
+function moveFolderBlock(s) {
+  const owner = s.owner || "together";
+  const options = Object.entries(SHOW_FOLDERS).filter(([key]) => key !== "vistas" && key !== owner);
+  return `
+    <div class="predicted-before" style="margin-top:20px;">
+      <h3>📁 Mover a otra carpeta</h3>
+      <div class="tickets-row">
+        ${options
+          .map(([key, o]) => `<button class="btn small ghost" onclick="moveShowToOwner('${s.id}', '${key}')">${o.emoji} ${o.label}</button>`)
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+async function moveShowToOwner(showId, newOwner) {
+  try {
+    await DB.updateShow(showId, { owner: newOwner });
+    STATE.showsLoaded = false;
+    toast("¡Serie movida de carpeta!");
+    renderShowDetail(showId);
+  } catch (e) {
+    toast("Error moviendo la serie");
+    console.error(e);
+  }
 }
 
 function showRatingCard(show, user) {

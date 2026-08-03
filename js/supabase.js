@@ -103,6 +103,12 @@ const DB = {
     if (error) throw error;
   },
 
+  async updateShow(id, fields) {
+    const { data, error } = await sb.from("shows").update(fields).eq("id", id).select().single();
+    if (error) throw error;
+    return data;
+  },
+
   async upsertShowRating(rating) {
     const { data, error } = await sb
       .from("show_ratings")
